@@ -44,7 +44,7 @@ POPS2/
 termux-setup-storage
 ```
 
-### 2. Install Dependencies
+### 2. Install dependencies, repository, and run the script
 
 ```bash
 pkg update -y && \
@@ -58,13 +58,8 @@ git clone https://github.com/AnimMouse/POPS-binaries.git && \
 cd cue2pops-linux && \
 make && \
 chmod +x cue2pops && \
-cd ..
-```
-
-### 3. Run
-
-```bash
-chmod +x ps1popsauto.sh
+cd .. && \
+chmod +x ps1popsauto.sh && \
 ./ps1popsauto.sh
 ```
 
