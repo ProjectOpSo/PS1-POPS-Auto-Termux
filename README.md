@@ -44,7 +44,7 @@ POPS2/
 termux-setup-storage
 ```
 
-### 2. Install dependencies, repository, and run the script
+### 2. Install the dependencies and clone this repository
 
 ```bash
 pkg update -y && \
@@ -59,8 +59,28 @@ cd cue2pops-linux && \
 make && \
 chmod +x cue2pops && \
 cd .. && \
-chmod +x ps1popsauto.sh cheats.sh && \
-./ps1popsauto.sh
+chmod +x ps1popsauto.sh cheats.sh
+```
+## 3. run the script
+
+## Notice: To update:
+
+```bash
+cd $HOME && \
+rm -rf PS1-POPS-Auto-Termux && \
+pkg update -y && \
+pkg upgrade -y && \
+pkg install -y git make clang python && \
+git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && \
+cd PS1-POPS-Auto-Termux && \
+git clone https://github.com/makefu/cue2pops-linux.git cue2pops-linux && \
+git clone https://github.com/putnam/binmerge.git && \
+git clone https://github.com/AnimMouse/POPS-binaries.git && \
+cd cue2pops-linux && \
+make && \
+chmod +x cue2pops && \
+cd .. && \
+chmod +x ps1popsauto.sh cheats.sh
 ```
 
 **The script automatically:**
