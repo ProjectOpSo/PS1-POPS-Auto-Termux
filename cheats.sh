@@ -12,8 +12,8 @@ detect_storage() {
 }
 
 BASE=$(detect_storage)
-CHEATS_FILE="$BASE/Download/POPS2/.POPSTARTER/POPS/CHEATS.TXT"
-mkdir -p "$(dirname "$CHEATS_FILE")"
+POPS_DIR="$BASE/Download/POPS2/.POPSTARTER/POPS"
+mkdir -p "$POPS_DIR"
 
 declare -A STATE
 declare -A VAL_STATE
@@ -99,6 +99,86 @@ select_lang() {
     echo "2) English"
     read -rp "Select Language / Selecione o Idioma: " l
     if [ "$l" = "1" ]; then LANG="PT"; else LANG="EN"; fi
+}
+
+ask_operation() {
+    local target_dir="$1"
+    while true; do
+        clear
+        local bname=$(basename "$target_dir")
+        if [ "$LANG" = "PT" ]; then
+            echo "=== PASTA SELECIONADA: $bname ==="
+            echo "1) Copiar os cheats globais para a pasta selecionada e modificar"
+            echo "2) Criar um arquivo CHEATS.TXT personalizável?"
+            read -rp "Escolha uma opção: " op
+        else
+            echo "=== SELECTED FOLDER: $bname ==="
+            echo "1) Copy global cheats to the selected folder and modify"
+            echo "2) Create a customizable CHEATS.TXT file?"
+            read -rp "Choose an option: " op
+        fi
+        if [ "$op" = "1" ]; then
+            if [ -f "$POPS_DIR/CHEATS.TXT" ]; then
+                cp "$POPS_DIR/CHEATS.TXT" "$target_dir/CHEATS.TXT"
+            else
+                touch "$target_dir/CHEATS.TXT"
+            fi
+            CHEATS_FILE="$target_dir/CHEATS.TXT"
+            break
+        elif [ "$op" = "2" ]; then
+            CHEATS_FILE="$target_dir/CHEATS.TXT"
+            break
+        fi
+    done
+}
+
+select_folder() {
+    while true; do
+        clear
+        if [ "$LANG" = "PT" ]; then
+            echo "=== SELECIONE A PASTA DO JOGO ==="
+        else
+            echo "=== SELECT GAME FOLDER ==="
+        fi
+        local dirs=()
+        local idx=1
+        for d in "$POPS_DIR"/*/; do
+            if [ -d "$d" ]; then
+                dirs+=("$d")
+                local bname=$(basename "$d")
+                echo "$idx) $bname"
+                idx=$((idx+1))
+            fi
+        done
+        if [ ${#dirs[@]} -eq 0 ]; then
+            if [ "$LANG" = "PT" ]; then
+                echo "Nenhuma pasta de jogo encontrada em: $POPS_DIR"
+                echo "Gerenciando arquivo raiz padrão."
+            else
+                echo "No game folders found in: $POPS_DIR"
+                echo "Managing default root file."
+            fi
+            sleep 3
+            CHEATS_FILE="$POPS_DIR/CHEATS.TXT"
+            return
+        fi
+        if [ "$LANG" = "PT" ]; then
+            echo "0) Usar arquivo raiz da pasta POPS (Global)"
+            read -rp "Selecione a pasta (ou 0): " choice
+        else
+            echo "0) Use root file inside POPS folder (Global)"
+            read -rp "Select folder (or 0): " choice
+        fi
+        if [ "$choice" = "0" ]; then
+            CHEATS_FILE="$POPS_DIR/CHEATS.TXT"
+            return
+        fi
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$idx" ]; then
+            local sel_dir="${dirs[$((choice-1))]}"
+            ask_operation "$sel_dir"
+            return
+        fi
+    done
 }
 
 load_state() {
@@ -347,6 +427,7 @@ main() {
     sleep 5
     clear
     select_lang
+    select_folder
     load_state
     menu
     save_state
@@ -354,4 +435,3 @@ main() {
 }
 
 main
-  
