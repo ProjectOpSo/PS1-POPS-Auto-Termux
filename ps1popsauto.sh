@@ -1,7 +1,7 @@
 #!/bin/bash
 
 clear
-echo "V.0.0.1"
+echo "V.0.0.2"
 sleep 5
 clear
 
@@ -40,15 +40,20 @@ merge_multi_bin_games() {
         BINMERGE="python ./binmerge/binmerge.py"
     fi
 
-    shopt -s nullglob
     for cue in "$JPS1_DIR"/*.cue; do
-        local stem
-        stem=$(basename "$cue" .cue)
-        local bin_count
-        bin_count=$(grep -c "FILE " "$cue")
+        local stem="${cue##*/}"
+        stem="${stem%.cue}"
+        
+        # Parse the .cue file internally using native regex matching
+        local bin_files=()
+        while IFS= read -r line; do
+            if [[ "$line" =~ FILE[[:space:]]+\"([^\"]+)\" ]]; then
+                bin_files+=("${BASH_REMATCH[1]}")
+            fi
+        done < "$cue"
 
-        if [ "$bin_count" -gt 1 ]; then
-            grep "FILE " "$cue" | sed -E 's/FILE "([^"]+)".*/\1/' | while read -r bin_file; do
+        if [ "${#bin_files[@]}" -gt 1 ]; then
+            for bin_file in "${bin_files[@]}"; do
                 mv "$JPS1_DIR/$bin_file" "$MPS1_DIR/" 2>/dev/null
             done
             mv "$cue" "$MPS1_DIR/" 2>/dev/null
@@ -60,14 +65,12 @@ merge_multi_bin_games() {
             fi
         fi
     done
-    shopt -u nullglob
 }
 
 convert_games() {
-    shopt -s nullglob
     for cue in "$JPS1_DIR"/*.cue; do
-        local stem
-        stem=$(basename "$cue" .cue)
+        local stem="${cue##*/}"
+        stem="${stem%.cue}"
         local out="$VPS1_DIR/$stem.VCD"
         
         if [ -f "$out" ]; then
@@ -85,47 +88,39 @@ convert_games() {
             rm -f "$JPS1_DIR/$stem.bin" 2>/dev/null
         fi
     done
-    shopt -u nullglob
 }
 
 rename_and_move_to_rps1() {
-    shopt -s nullglob
     for vcd in "$VPS1_DIR"/*.VCD; do
-        local base_vcd
-        base_vcd=$(basename "$vcd")
-        local file_name
-        file_name=$(basename "$base_vcd" .VCD)
-        file_name=$(echo "$file_name" | sed 's/[^[:alnum:]]//g')
+        local base_vcd="${vcd##*/}"
+        local file_name="${base_vcd%.VCD}"
+        
+        # Native global regex substitution completely replaces sed
+        file_name="${file_name//[^[:alnum:]]/}"
         mv "$vcd" "$RPS1_DIR/$file_name.VCD" 2>/dev/null
     done
-    shopt -u nullglob
 }
 
 build_final_structure() {
     if [ -d "$REPO_DIR" ]; then
-        shopt -s nullglob
         for bin_file in "$REPO_DIR"/*; do
             if [ -f "$bin_file" ]; then
-                local b_name
-                b_name=$(basename "$bin_file")
+                local b_name="${bin_file##*/}"
                 if [ ! -f "$FINAL_POPS_DIR/$b_name" ]; then
                     cp "$bin_file" "$FINAL_POPS_DIR/" 2>/dev/null
                 fi
             fi
         done
-        shopt -u nullglob
     fi
 
-    rm -f "$CONF_APPS"
-    touch "$CONF_APPS"
+    # Native truncation creates or empties the file without launching touch/rm
+    > "$CONF_APPS"
     
     local games_file
     games_file=$(mktemp)
 
-    shopt -s nullglob
     for vcd in "$RPS1_DIR"/*.VCD; do
-        local base_vcd
-        base_vcd=$(basename "$vcd")
+        local base_vcd="${vcd##*/}"
         local file_name="${base_vcd%.*}"
 
         mv "$vcd" "$FINAL_POPS_DIR/" 2>/dev/null
@@ -137,7 +132,6 @@ build_final_structure() {
             cp -r "$PS1M_DIR"/. "$dest_mem/" 2>/dev/null
         fi
     done
-    shopt -u nullglob
 
     if [ -f "$POPS_ELF" ] && [ -s "$games_file" ]; then
         while IFS='|' read -r disp_name file_name; do
@@ -149,17 +143,21 @@ build_final_structure() {
     fi
     
     if [ -s "$games_file" ]; then
+        # Grouped loop redirection streams the batch out to the file in one single write command
         sort -t'|' -k1,1 "$games_file" | while IFS='|' read -r disp_name file_name; do
             if [ -n "$disp_name" ]; then
-                echo "$disp_name=mass:/APPS/XX.$file_name.ELF" >> "$CONF_APPS"
+                echo "$disp_name=mass:/APPS/XX.$file_name.ELF"
             fi
-        done
+        done >> "$CONF_APPS"
     fi
     
     rm -f "$games_file"
 }
 
 main() {
+    # Enabled globally for the runtime scope of the script setup
+    shopt -s nullglob
+    
     mkdir -p "$POPS2_DIR" "$JPS1_DIR" "$MPS1_DIR" "$VPS1_DIR" "$RPS1_DIR" "$PS1M_DIR"
     mkdir -p "$POPSTARTER_FINAL_DIR" "$FINAL_POPS_DIR" "$FINAL_APPS_DIR"
 
@@ -170,6 +168,7 @@ main() {
     
     clear
     echo "END"
+    shopt -u nullglob
 }
 
 main
