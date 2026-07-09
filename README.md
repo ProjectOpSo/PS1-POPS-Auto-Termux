@@ -59,7 +59,7 @@ cd cue2pops-linux && \
 make && \
 chmod +x cue2pops && \
 cd .. && \
-chmod +x ps1popsauto.sh && \
+chmod +x ps1popsauto.sh cheats.sh && \
 ./ps1popsauto.sh
 ```
 
