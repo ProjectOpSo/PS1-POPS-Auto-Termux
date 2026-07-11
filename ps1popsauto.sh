@@ -1,9 +1,6 @@
 #!/bin/bash
 
-clear
-echo "V.0.0.2"
-sleep 5
-clear
+echo "V.0.0.3"
 
 detect_storage() {
     local candidates=("/sdcard" "/storage/emulated/0" "$EXTERNAL_STORAGE" "$HOME/storage/shared")
@@ -41,10 +38,10 @@ merge_multi_bin_games() {
     fi
 
     for cue in "$JPS1_DIR"/*.cue; do
+        [ -e "$cue" ] || continue
         local stem="${cue##*/}"
         stem="${stem%.cue}"
         
-        # Parse the .cue file internally using native regex matching
         local bin_files=()
         while IFS= read -r line; do
             if [[ "$line" =~ FILE[[:space:]]+\"([^\"]+)\" ]]; then
@@ -68,7 +65,16 @@ merge_multi_bin_games() {
 }
 
 convert_games() {
+    local TMP_WORK_DIR="$POPS2_DIR/.tmp_conv"
+    mkdir -p "$TMP_WORK_DIR"
+
+    if [ ! -x "$CUE2POPS" ]; then
+        rm -rf "$TMP_WORK_DIR"
+        return 1
+    fi
+
     for cue in "$JPS1_DIR"/*.cue; do
+        [ -e "$cue" ] || continue
         local stem="${cue##*/}"
         stem="${stem%.cue}"
         local out="$VPS1_DIR/$stem.VCD"
@@ -77,25 +83,28 @@ convert_games() {
             continue
         fi
         
-        if [ ! -x "$CUE2POPS" ]; then
-            return 1
-        fi
+        nice -n 19 timeout 15m "$CUE2POPS" "$cue" "$TMP_WORK_DIR/$stem.VCD" >/dev/null 2>&1
         
-        "$CUE2POPS" "$cue" "$out" >/dev/null 2>&1
-        
-        if [ -s "$out" ]; then
+        if [ -s "$TMP_WORK_DIR/$stem.VCD" ]; then
+            mv "$TMP_WORK_DIR/$stem.VCD" "$out" 2>/dev/null
             rm -f "$JPS1_DIR/$stem.cue" 2>/dev/null
             rm -f "$JPS1_DIR/$stem.bin" 2>/dev/null
         fi
+        
+        rm -f "$TMP_WORK_DIR/$stem"* 2>/dev/null
+        sync
+        sleep 1
     done
+
+    rm -rf "$TMP_WORK_DIR"
 }
 
 rename_and_move_to_rps1() {
     for vcd in "$VPS1_DIR"/*.VCD; do
+        [ -e "$vcd" ] || continue
         local base_vcd="${vcd##*/}"
         local file_name="${base_vcd%.VCD}"
         
-        # Native global regex substitution completely replaces sed
         file_name="${file_name//[^[:alnum:]]/}"
         mv "$vcd" "$RPS1_DIR/$file_name.VCD" 2>/dev/null
     done
@@ -113,13 +122,13 @@ build_final_structure() {
         done
     fi
 
-    # Native truncation creates or empties the file without launching touch/rm
     > "$CONF_APPS"
     
     local games_file
     games_file=$(mktemp)
 
     for vcd in "$RPS1_DIR"/*.VCD; do
+        [ -e "$vcd" ] || continue
         local base_vcd="${vcd##*/}"
         local file_name="${base_vcd%.*}"
 
@@ -143,7 +152,6 @@ build_final_structure() {
     fi
     
     if [ -s "$games_file" ]; then
-        # Grouped loop redirection streams the batch out to the file in one single write command
         sort -t'|' -k1,1 "$games_file" | while IFS='|' read -r disp_name file_name; do
             if [ -n "$disp_name" ]; then
                 echo "$disp_name=mass:/APPS/XX.$file_name.ELF"
@@ -155,7 +163,7 @@ build_final_structure() {
 }
 
 main() {
-    # Enabled globally for the runtime scope of the script setup
+    trap 'rm -rf "$POPS2_DIR/.tmp_conv"; shopt -u nullglob' EXIT INT TERM
     shopt -s nullglob
     
     mkdir -p "$POPS2_DIR" "$JPS1_DIR" "$MPS1_DIR" "$VPS1_DIR" "$RPS1_DIR" "$PS1M_DIR"
@@ -166,7 +174,6 @@ main() {
     rename_and_move_to_rps1
     build_final_structure
     
-    clear
     echo "END"
     shopt -u nullglob
 }
