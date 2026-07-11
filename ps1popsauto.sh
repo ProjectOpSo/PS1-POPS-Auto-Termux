@@ -1,9 +1,9 @@
 #!/bin/bash
 
-clear
-echo "V.0.0.2"
-sleep 5
-clear
+echo "V-EXPERIMENTAL (droot branch)"
+
+DEBUG_MODE=0
+USE_ROOT=0
 
 detect_storage() {
     local candidates=("/sdcard" "/storage/emulated/0" "$EXTERNAL_STORAGE" "$HOME/storage/shared")
@@ -35,16 +35,60 @@ REPO_DIR="./POPS-binaries"
 CUE2POPS="./cue2pops-linux/cue2pops"
 BINMERGE="./binmerge/binmerge"
 
+show_menu() {
+    echo "========================================"
+    echo "       PS1 POPS AUTO - MENU CONFIG      "
+    echo "========================================"
+    echo "1) Standard Mode (Safe & Quiet)"
+    echo "2) Debug Mode (Show details & logs)"
+    echo "3) Root Mode (Fast conversion via privilege optimization)"
+    echo "4) Debug + Root Mode (Fastest & Verbose)"
+    echo "========================================"
+    read -p "Select an option [1-4]: " opt
+    
+    case $opt in
+        1)
+            DEBUG_MODE=0
+            USE_ROOT=0
+            ;;
+        2)
+            DEBUG_MODE=1
+            USE_ROOT=0
+            ;;
+        3)
+            DEBUG_MODE=0
+            USE_ROOT=1
+            ;;
+        4)
+            DEBUG_MODE=1
+            USE_ROOT=1
+            ;;
+        *)
+            echo "Invalid option. Using Standard Mode."
+            DEBUG_MODE=0
+            USE_ROOT=0
+            ;;
+    esac
+}
+
 merge_multi_bin_games() {
+    if [ $DEBUG_MODE -eq 1 ]; then
+        echo "[DEBUG] Starting multi-bin merge..."
+    fi
+
     if [ ! -x "$BINMERGE" ] && [ -f "./binmerge/binmerge.py" ]; then
         BINMERGE="python ./binmerge/binmerge.py"
     fi
 
     for cue in "$JPS1_DIR"/*.cue; do
+        [ -e "$cue" ] || continue
         local stem="${cue##*/}"
         stem="${stem%.cue}"
         
-        # Parse the .cue file internally using native regex matching
+        if [ $DEBUG_MODE -eq 1 ]; then
+            echo "[DEBUG] Checking .cue: $stem"
+        fi
+        
         local bin_files=()
         while IFS= read -r line; do
             if [[ "$line" =~ FILE[[:space:]]+\"([^\"]+)\" ]]; then
@@ -53,83 +97,272 @@ merge_multi_bin_games() {
         done < "$cue"
 
         if [ "${#bin_files[@]}" -gt 1 ]; then
+            if [ $DEBUG_MODE -eq 1 ]; then
+                echo "[DEBUG] Multi-bin game detected: $stem. Merging..."
+            fi
+            
             for bin_file in "${bin_files[@]}"; do
-                mv "$JPS1_DIR/$bin_file" "$MPS1_DIR/" 2>/dev/null
+                if [ $DEBUG_MODE -eq 1 ]; then
+                    mv "$JPS1_DIR/$bin_file" "$MPS1_DIR/"
+                else
+                    mv "$JPS1_DIR/$bin_file" "$MPS1_DIR/" 2>/dev/null
+                fi
             done
-            mv "$cue" "$MPS1_DIR/" 2>/dev/null
-
-            if $BINMERGE --outdir "$JPS1_DIR" "$MPS1_DIR/$stem.cue" "$stem" >/dev/null 2>&1; then
-                rm -f "$MPS1_DIR/$stem"* 2>/dev/null
+            
+            if [ $DEBUG_MODE -eq 1 ]; then
+                mv "$cue" "$MPS1_DIR/"
             else
-                mv "$MPS1_DIR/$stem"* "$JPS1_DIR/" 2>/dev/null
+                mv "$cue" "$MPS1_DIR/" 2>/dev/null
+            fi
+
+            if [ $DEBUG_MODE -eq 1 ]; then
+                if $BINMERGE --outdir "$JPS1_DIR" "$MPS1_DIR/$stem.cue" "$stem"; then
+                    echo "[DEBUG] Successfully merged: $stem"
+                    rm -f "$MPS1_DIR/$stem"*
+                else
+                    echo "[DEBUG] ERROR merging with binmerge: $stem. Reverting..."
+                    mv "$MPS1_DIR/$stem"* "$JPS1_DIR/"
+                fi
+            else
+                if $BINMERGE --outdir "$JPS1_DIR" "$MPS1_DIR/$stem.cue" "$stem" >/dev/null 2>&1; then
+                    rm -f "$MPS1_DIR/$stem"* 2>/dev/null
+                else
+                    mv "$MPS1_DIR/$stem"* "$JPS1_DIR/" 2>/dev/null
+                fi
             fi
         fi
     done
 }
 
 convert_games() {
+    if [ $DEBUG_MODE -eq 1 ]; then
+        echo "[DEBUG] Starting game conversion..."
+    fi
+
+    local TMP_WORK_DIR="$POPS2_DIR/.tmp_conv"
+    
+    if [ $USE_ROOT -eq 1 ]; then
+        su -c "mkdir -p \"$TMP_WORK_DIR\""
+    else
+        mkdir -p "$TMP_WORK_DIR"
+    fi
+
+    if [ ! -x "$CUE2POPS" ]; then
+        if [ $DEBUG_MODE -eq 1 ]; then
+            echo "[DEBUG] CRITICAL ERROR: Binary at '$CUE2POPS' missing or lacks +x permission."
+        fi
+        if [ $USE_ROOT -eq 1 ]; then
+            su -c "rm -rf \"$TMP_WORK_DIR\""
+        else
+            rm -rf "$TMP_WORK_DIR"
+        fi
+        return 1
+    fi
+
     for cue in "$JPS1_DIR"/*.cue; do
+        [ -e "$cue" ] || continue
         local stem="${cue##*/}"
         stem="${stem%.cue}"
         local out="$VPS1_DIR/$stem.VCD"
         
         if [ -f "$out" ]; then
+            if [ $DEBUG_MODE -eq 1 ]; then
+                echo "[DEBUG] Skipping '$stem', .VCD already exists in VPS1."
+            fi
             continue
         fi
         
-        if [ ! -x "$CUE2POPS" ]; then
-            return 1
+        if [ $DEBUG_MODE -eq 1 ]; then
+            echo "[DEBUG] Converting '$stem'..."
+        fi
+
+        if [ $USE_ROOT -eq 1 ]; then
+            if [ $DEBUG_MODE -eq 1 ]; then
+                echo "[DEBUG] Executing under ROOT privileges..."
+                su -c "timeout 15m \"$CUE2POPS\" \"$cue\" \"$TMP_WORK_DIR/$stem.VCD\""
+                local exit_code=$?
+                echo "[DEBUG] cue2pops exited with code: $exit_code"
+            else
+                su -c "timeout 15m \"$CUE2POPS\" \"$cue\" \"$TMP_WORK_DIR/$stem.VCD\"" >/dev/null 2>&1
+            fi
+        else
+            if [ $DEBUG_MODE -eq 1 ]; then
+                echo "[DEBUG] Executing under standard priority (nice -n 19)..."
+                nice -n 19 timeout 15m "$CUE2POPS" "$cue" "$TMP_WORK_DIR/$stem.VCD"
+                local exit_code=$?
+                echo "[DEBUG] cue2pops exited with code: $exit_code"
+            else
+                nice -n 19 timeout 15m "$CUE2POPS" "$cue" "$TMP_WORK_DIR/$stem.VCD" >/dev/null 2>&1
+            fi
         fi
         
-        "$CUE2POPS" "$cue" "$out" >/dev/null 2>&1
-        
-        if [ -s "$out" ]; then
-            rm -f "$JPS1_DIR/$stem.cue" 2>/dev/null
-            rm -f "$JPS1_DIR/$stem.bin" 2>/dev/null
+        local file_check_cmd="[ -s \"$TMP_WORK_DIR/$stem.VCD\" ]"
+        if [ $USE_ROOT -eq 1 ]; then
+            su -c "$file_check_cmd"
+            local has_file=$?
+        else
+            eval "$file_check_cmd"
+            local has_file=$?
         fi
+
+        if [ $has_file -eq 0 ]; then
+            if [ $DEBUG_MODE -eq 1 ]; then
+                echo "[DEBUG] .VCD file generated successfully. Moving to final destination..."
+                if [ $USE_ROOT -eq 1 ]; then
+                    su -c "mv \"$TMP_WORK_DIR/$stem.VCD\" \"$out\" && rm -f \"$JPS1_DIR/$stem.cue\" \"$JPS1_DIR/$stem.bin\""
+                else
+                    mv "$TMP_WORK_DIR/$stem.VCD" "$out"
+                    rm -f "$JPS1_DIR/$stem.cue" "$JPS1_DIR/$stem.bin"
+                fi
+            else
+                if [ $USE_ROOT -eq 1 ]; then
+                    su -c "mv \"$TMP_WORK_DIR/$stem.VCD\" \"$out\" && rm -f \"$JPS1_DIR/$stem.cue\" \"$JPS1_DIR/$stem.bin\"" >/dev/null 2>&1
+                else
+                    mv "$TMP_WORK_DIR/$stem.VCD" "$out" 2>/dev/null
+                    rm -f "$JPS1_DIR/$stem.cue" 2>/dev/null
+                    rm -f "$JPS1_DIR/$stem.bin" 2>/dev/null
+                fi
+            fi
+        else
+            if [ $DEBUG_MODE -eq 1 ]; then
+                echo "[DEBUG] ERROR: .VCD file was not generated or has 0 bytes."
+            fi
+        fi
+        
+        if [ $USE_ROOT -eq 1 ]; then
+            if [ $DEBUG_MODE -eq 1 ]; then
+                su -c "rm -f \"$TMP_WORK_DIR/$stem\"*"
+            else
+                su -c "rm -f \"$TMP_WORK_DIR/$stem\"*" >/dev/null 2>&1
+            fi
+            su -c "sync"
+        else
+            if [ $DEBUG_MODE -eq 1 ]; then
+                rm -f "$TMP_WORK_DIR/$stem"*
+            else
+                rm -f "$TMP_WORK_DIR/$stem"* 2>/dev/null
+            fi
+            sync
+        fi
+        sleep 1
     done
+
+    if [ $USE_ROOT -eq 1 ]; then
+        su -c "rm -rf \"$TMP_WORK_DIR\""
+    else
+        rm -rf "$TMP_WORK_DIR"
+    fi
 }
 
 rename_and_move_to_rps1() {
+    if [ $DEBUG_MODE -eq 1 ]; then
+        echo "[DEBUG] Starting rename and transfer to RPS1..."
+    fi
+
     for vcd in "$VPS1_DIR"/*.VCD; do
+        [ -e "$vcd" ] || continue
         local base_vcd="${vcd##*/}"
         local file_name="${base_vcd%.VCD}"
         
-        # Native global regex substitution completely replaces sed
         file_name="${file_name//[^[:alnum:]]/}"
-        mv "$vcd" "$RPS1_DIR/$file_name.VCD" 2>/dev/null
+        
+        if [ $DEBUG_MODE -eq 1 ]; then
+            echo "[DEBUG] Renaming '$base_vcd' to '$file_name.VCD'"
+            if [ $USE_ROOT -eq 1 ]; then
+                su -c "mv \"$vcd\" \"$RPS1_DIR/$file_name.VCD\""
+            else
+                mv "$vcd" "$RPS1_DIR/$file_name.VCD"
+            fi
+        else
+            if [ $USE_ROOT -eq 1 ]; then
+                su -c "mv \"$vcd\" \"$RPS1_DIR/$file_name.VCD\"" >/dev/null 2>&1
+            else
+                mv "$vcd" "$RPS1_DIR/$file_name.VCD" 2>/dev/null
+            fi
+        fi
     done
 }
 
 build_final_structure() {
+    if [ $DEBUG_MODE -eq 1 ]; then
+        echo "[DEBUG] Building final POPSTARTER structure..."
+    fi
+
     if [ -d "$REPO_DIR" ]; then
         for bin_file in "$REPO_DIR"/*; do
             if [ -f "$bin_file" ]; then
                 local b_name="${bin_file##*/}"
                 if [ ! -f "$FINAL_POPS_DIR/$b_name" ]; then
-                    cp "$bin_file" "$FINAL_POPS_DIR/" 2>/dev/null
+                    if [ $DEBUG_MODE -eq 1 ]; then
+                        if [ $USE_ROOT -eq 1 ]; then
+                            su -c "cp \"$bin_file\" \"$FINAL_POPS_DIR/\""
+                        else
+                            cp "$bin_file" "$FINAL_POPS_DIR/"
+                        fi
+                    else
+                        if [ $USE_ROOT -eq 1 ]; then
+                            su -c "cp \"$bin_file\" \"$FINAL_POPS_DIR/\"" >/dev/null 2>&1
+                        else
+                            cp "$bin_file" "$FINAL_POPS_DIR/" 2>/dev/null
+                        fi
+                    fi
                 fi
             fi
         done
     fi
 
-    # Native truncation creates or empties the file without launching touch/rm
-    > "$CONF_APPS"
+    if [ $USE_ROOT -eq 1 ]; then
+        su -c "> \"$CONF_APPS\""
+    else
+        > "$CONF_APPS"
+    fi
     
     local games_file
     games_file=$(mktemp)
 
     for vcd in "$RPS1_DIR"/*.VCD; do
+        [ -e "$vcd" ] || continue
         local base_vcd="${vcd##*/}"
         local file_name="${base_vcd%.*}"
 
-        mv "$vcd" "$FINAL_POPS_DIR/" 2>/dev/null
+        if [ $DEBUG_MODE -eq 1 ]; then
+            echo "[DEBUG] Moving '$base_vcd' to final POPS directory..."
+            if [ $USE_ROOT -eq 1 ]; then
+                su -c "mv \"$vcd\" \"$FINAL_POPS_DIR/\""
+            else
+                mv "$vcd" "$FINAL_POPS_DIR/"
+            fi
+        else
+            if [ $USE_ROOT -eq 1 ]; then
+                su -c "mv \"$vcd\" \"$FINAL_POPS_DIR/\"" >/dev/null 2>&1
+            else
+                mv "$vcd" "$FINAL_POPS_DIR/" 2>/dev/null
+            fi
+        fi
+        
         echo "$file_name|$file_name" >> "$games_file"
         
         if [ -d "$PS1M_DIR" ]; then
             local dest_mem="$FINAL_POPS_DIR/$file_name"
-            mkdir -p "$dest_mem"
-            cp -r "$PS1M_DIR"/. "$dest_mem/" 2>/dev/null
+            if [ $USE_ROOT -eq 1 ]; then
+                su -c "mkdir -p \"$dest_mem\""
+            else
+                mkdir -p "$dest_mem"
+            fi
+
+            if [ $DEBUG_MODE -eq 1 ]; then
+                if [ $USE_ROOT -eq 1 ]; then
+                    su -c "cp -r \"$PS1M_DIR\"/. \"$dest_mem/\""
+                else
+                    cp -r "$PS1M_DIR"/. "$dest_mem/"
+                fi
+            else
+                if [ $USE_ROOT -eq 1 ]; then
+                    su -c "cp -r \"$PS1M_DIR\"/. \"$dest_mem/\"" >/dev/null 2>&1
+                else
+                    cp -r "$PS1M_DIR"/. "$dest_mem/" 2>/dev/null
+                fi
+            fi
         fi
     done
 
@@ -137,36 +370,66 @@ build_final_structure() {
         while IFS='|' read -r disp_name file_name; do
             if [ -n "$file_name" ]; then
                 local elf_name="XX.$file_name.ELF"
-                cp "$POPS_ELF" "$FINAL_APPS_DIR/$elf_name" 2>/dev/null
+                if [ $DEBUG_MODE -eq 1 ]; then
+                    if [ $USE_ROOT -eq 1 ]; then
+                        su -c "cp \"$POPS_ELF\" \"$FINAL_APPS_DIR/$elf_name\""
+                    else
+                        cp "$POPS_ELF" "$FINAL_APPS_DIR/$elf_name"
+                    fi
+                else
+                    if [ $USE_ROOT -eq 1 ]; then
+                        su -c "cp \"$POPS_ELF\" \"$FINAL_APPS_DIR/$elf_name\"" >/dev/null 2>&1
+                    else
+                        cp "$POPS_ELF" "$FINAL_APPS_DIR/$elf_name" 2>/dev/null
+                    fi
+                fi
             fi
         done < "$games_file"
     fi
     
     if [ -s "$games_file" ]; then
-        # Grouped loop redirection streams the batch out to the file in one single write command
+        local temp_conf
+        temp_conf=$(mktemp)
         sort -t'|' -k1,1 "$games_file" | while IFS='|' read -r disp_name file_name; do
             if [ -n "$disp_name" ]; then
                 echo "$disp_name=mass:/APPS/XX.$file_name.ELF"
             fi
-        done >> "$CONF_APPS"
+        done >> "$temp_conf"
+
+        if [ $USE_ROOT -eq 1 ]; then
+            su -c "cat \"$temp_conf\" >> \"$CONF_APPS\""
+        else
+            cat "$temp_conf" >> "$CONF_APPS"
+        fi
+        rm -f "$temp_conf"
     fi
     
     rm -f "$games_file"
 }
 
 main() {
-    # Enabled globally for the runtime scope of the script setup
+    trap 'if [ $USE_ROOT -eq 1 ]; then su -c "rm -rf \"$POPS2_DIR/.tmp_conv\""; else rm -rf "$POPS2_DIR/.tmp_conv"; fi; shopt -u nullglob' EXIT INT TERM
     shopt -s nullglob
     
-    mkdir -p "$POPS2_DIR" "$JPS1_DIR" "$MPS1_DIR" "$VPS1_DIR" "$RPS1_DIR" "$PS1M_DIR"
-    mkdir -p "$POPSTARTER_FINAL_DIR" "$FINAL_POPS_DIR" "$FINAL_APPS_DIR"
+    show_menu
+    
+    if [ $DEBUG_MODE -eq 1 ]; then
+        echo "[DEBUG] Initializing base directories..."
+    fi
+    
+    if [ $USE_ROOT -eq 1 ]; then
+        su -c "mkdir -p \"$POPS2_DIR\" \"$JPS1_DIR\" \"$MPS1_DIR\" \"$VPS1_DIR\" \"$RPS1_DIR\" \"$PS1M_DIR\""
+        su -c "mkdir -p \"$POPSTARTER_FINAL_DIR\" \"$FINAL_POPS_DIR\" \"$FINAL_APPS_DIR\""
+    else
+        mkdir -p "$POPS2_DIR" "$JPS1_DIR" "$MPS1_DIR" "$VPS1_DIR" "$RPS1_DIR" "$PS1M_DIR"
+        mkdir -p "$POPSTARTER_FINAL_DIR" "$FINAL_POPS_DIR" "$FINAL_APPS_DIR"
+    fi
 
     merge_multi_bin_games
     convert_games
     rename_and_move_to_rps1
     build_final_structure
     
-    clear
     echo "END"
     shopt -u nullglob
 }
