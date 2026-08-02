@@ -157,6 +157,7 @@ def process_and_resize_image_ffmpeg(temp_img_path, out_path):
             "-y",
             "-i", temp_img_path,
             "-vf", "scale=200:200",
+            "-pix_fmt", "pal8",
             out_path
         ]
         try:
@@ -271,7 +272,7 @@ def download_covers_opl(game_serials):
 
             if os.path.exists(raw_download_path):
                 os.remove(raw_download_path)
-            print("  [✓] Cover processed to PNG via FFmpeg.")
+            print("  [✓] Cover processed to PNG (pal8) via FFmpeg.")
         else:
             print("  [X] Cover not found.")
 
