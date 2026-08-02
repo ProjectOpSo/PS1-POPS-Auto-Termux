@@ -85,11 +85,16 @@ chmod +x ps1popsauto.py cheats.sh
 ## run
 
 ```
-python ps1popsauto.py
+./ps1popsauto.py
 ```
+## cheats
 
+```
+./cheats.sh
+```
 **The script automatically:**
 * Merges multi-track games.
+* Download the covers.
 * Converts them to `.VCD`.
 * Renames incompatible filenames.
 * Builds the complete POPStarter directory.
@@ -110,4 +115,4 @@ python ps1popsauto.py
 
 * **xlenore** — [psx-covers](https://github.com/xlenore/psx-covers)
   * Covers for PlayStation 1 games.
-  * 
+    
