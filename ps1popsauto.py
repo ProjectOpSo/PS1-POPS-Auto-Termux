@@ -5,9 +5,26 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+
+SANITIZE_RE = re.compile(r'[@#$_&\-\+\(\)/\*"\'\:;\!\?,\~`\|•√π÷×§∆£¢€¥\^°=\{\}\\%\©®™✓\[\]<>\.\,\s]+')
+SERIAL_PRIMARY_RE = re.compile(r"([A-Z]{4})[_-]?([0-9]{3})\.?([0-9]{2})", re.IGNORECASE)
+SERIAL_MATCH_RE = re.compile(
+    r"(?:BOOT\s*=\s*cdrom:\\?|cdrom:\\?|\b)([S|P][L|C][E|U|P|M][S|A|R|D|P|M][_|\-]?[0-9]{3}\.?[0-9]{2}(?:;[0-9]+)?)",
+    re.IGNORECASE,
+)
+ALT_SERIAL_RE = re.compile(
+    r"\b([S|P][L|C][E|U|P|M][S|A|R|D|P|M][_|\-]?[0-9]{5})\b",
+    re.IGNORECASE,
+)
+TRACK_RE = re.compile(r"\s*\([T|t]rack\s*[0-9]+\)", re.IGNORECASE)
+CUE_FILE_RE = re.compile(r'FILE\s+"([^"]+)"', re.IGNORECASE)
+CUE_FILE_REPLACE = re.compile(r'FILE ".*" BINARY', re.IGNORECASE)
+
+HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
 
 def detect_storage():
@@ -51,8 +68,7 @@ BINMERGE = "./binmerge/binmerge"
 
 
 def sanitize_name(name):
-    cleaned = re.sub(r'[@#$_&\-\+\(\)/\*"\'\:;\!\?,\~`\|•√π÷×§∆£¢€¥\^°=\{\}\\%\©®™✓\[\]<>\.\,\s]', "", name)
-    return cleaned.strip()
+    return SANITIZE_RE.sub("", name).strip()
 
 
 def sanitize_input_files():
@@ -84,7 +100,7 @@ def format_raw_serial(raw):
 
     raw = raw.replace("\\", "/").split("/")[-1]
 
-    match = re.search(r"([A-Z]{4})[_-]?([0-9]{3})\.?([0-9]{2})", raw)
+    match = SERIAL_PRIMARY_RE.search(raw)
     if match:
         prefix = match.group(1)
         num1 = match.group(2)
@@ -94,36 +110,32 @@ def format_raw_serial(raw):
     return None
 
 
-def extract_serial_from_bin(bin_path):
+def extract_serial_from_bin(bin_path, chunk_size=1024 * 1024):
     if not os.path.exists(bin_path):
         return None
     try:
+        buffer = ""
         with open(bin_path, "rb") as f:
-            chunk = f.read(1024 * 1024 * 10)
-            text = chunk.decode("latin-1", errors="ignore")
+            while True:
+                data = f.read(chunk_size)
+                if not data:
+                    break
 
-            matches = re.findall(
-                r"(?:BOOT\s*=\s*cdrom:\\?|cdrom:\\?|\b)([S|P][L|C][E|U|P|M][S|A|R|D|P|M][_|\-]?[0-9]{3}\.?[0-9]{2}(?:;[0-9]+)?)",
-                text,
-                re.IGNORECASE,
-            )
+                buffer += data.decode("latin-1", errors="ignore")
 
-            for m in matches:
-                formatted = format_raw_serial(m)
-                if formatted:
-                    return formatted
+                for m in SERIAL_MATCH_RE.findall(buffer):
+                    formatted = format_raw_serial(m)
+                    if formatted:
+                        return formatted
 
-            alt_matches = re.findall(
-                r"\b([S|P][L|C][E|U|P|M][S|A|R|D|P|M][_|\-]?[0-9]{5})\b",
-                text,
-                re.IGNORECASE,
-            )
-            for m in alt_matches:
-                formatted = format_raw_serial(m)
-                if formatted:
-                    return formatted
+                for m in ALT_SERIAL_RE.findall(buffer):
+                    formatted = format_raw_serial(m)
+                    if formatted:
+                        return formatted
 
-    except Exception:
+                buffer = buffer[-1024:]
+
+    except (OSError, IOError):
         pass
     return None
 
@@ -135,7 +147,7 @@ def get_game_serials_map():
 
     for bin_path in bin_files:
         stem = os.path.splitext(os.path.basename(bin_path))[0]
-        base_stem = re.sub(r"\s*\([T|t]rack\s*[0-9]+\)", "", stem).strip()
+        base_stem = TRACK_RE.sub("", stem).strip()
         clean_name = sanitize_name(base_stem)
 
         serial = extract_serial_from_bin(bin_path)
@@ -150,22 +162,33 @@ def get_game_serials_map():
 
 def process_and_resize_image_ffmpeg(temp_img_path, out_path):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    has_ffmpeg = shutil.which("ffmpeg") is not None
 
-    if has_ffmpeg:
+    if HAS_FFMPEG:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png", dir=os.path.dirname(out_path)) as tmp:
+            tmp_name = tmp.name
+
         cmd = [
             "ffmpeg",
             "-y",
             "-i", temp_img_path,
             "-vf", "scale=200:200",
             "-pix_fmt", "pal8",
-            out_path
+            tmp_name
         ]
         try:
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if res.returncode != 0 or not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+            if res.returncode == 0 and os.path.exists(tmp_name) and os.path.getsize(tmp_name) > 0:
+                os.replace(tmp_name, out_path)
+            else:
+                if os.path.exists(tmp_name):
+                    os.remove(tmp_name)
                 shutil.copy(temp_img_path, out_path)
         except Exception:
+            if os.path.exists(tmp_name):
+                try:
+                    os.remove(tmp_name)
+                except Exception:
+                    pass
             shutil.copy(temp_img_path, out_path)
     else:
         shutil.copy(temp_img_path, out_path)
@@ -236,10 +259,12 @@ def download_covers_opl(game_serials, mode_prefix):
         cad_match = [u for u in cad_urls if serial.lower() in u.lower()]
         url_to_try = cad_match[0] if cad_match else target_cad_url
 
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".img", dir=POPS2_DIR) as tmp_file:
+            raw_download_path = tmp_file.name
+
         try:
             req = urllib.request.Request(url_to_try, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as response:
-                raw_download_path = os.path.join(POPS2_DIR, ".tmp_dl.img")
                 with open(raw_download_path, "wb") as out_file:
                     out_file.write(response.read())
             downloaded = True
@@ -256,7 +281,6 @@ def download_covers_opl(game_serials, mode_prefix):
                 try:
                     req = urllib.request.Request(url, headers=headers)
                     with urllib.request.urlopen(req, timeout=8) as response:
-                        raw_download_path = os.path.join(POPS2_DIR, ".tmp_dl.img")
                         with open(raw_download_path, "wb") as out_file:
                             out_file.write(response.read())
                     downloaded = True
@@ -275,6 +299,8 @@ def download_covers_opl(game_serials, mode_prefix):
                 os.remove(raw_download_path)
             print("  [✓] Cover processed to PNG (pal8) via FFmpeg.")
         else:
+            if raw_download_path and os.path.exists(raw_download_path):
+                os.remove(raw_download_path)
             print("  [X] Cover not found.")
 
     shutil.rmtree(TMP_ART_DIR, ignore_errors=True)
@@ -304,27 +330,18 @@ def fix_cue_files():
 
         if len(matching_bins) == 1:
             for line in lines:
-                new_line = re.sub(
-                    r'FILE ".*" BINARY',
-                    f'FILE "{matching_bins[0]}" BINARY',
-                    line,
-                    flags=re.IGNORECASE,
-                )
+                new_line = CUE_FILE_REPLACE.sub(f'FILE "{matching_bins[0]}" BINARY', line)
                 new_lines.append(new_line)
         elif len(matching_bins) > 1:
             idx = 0
             for line in lines:
-                if re.search(r'FILE ".*" BINARY', line, re.IGNORECASE):
-                    match = re.search(
-                        r'FILE "(.*)" BINARY', line, re.IGNORECASE
-                    )
+                if CUE_FILE_REPLACE.search(line):
+                    match = CUE_FILE_RE.search(line)
                     target_bin = match.group(1) if match else ""
 
                     if not os.path.exists(os.path.join(cue_dir, target_bin)):
                         if idx < len(matching_bins):
-                            new_lines.append(
-                                f'FILE "{matching_bins[idx]}" BINARY\n'
-                            )
+                            new_lines.append(f'FILE "{matching_bins[idx]}" BINARY\n')
                             idx += 1
                         else:
                             new_lines.append(line)
@@ -335,12 +352,7 @@ def fix_cue_files():
         elif len(bin_files) == 1:
             single_bin = os.path.basename(bin_files[0])
             for line in lines:
-                new_line = re.sub(
-                    r'FILE ".*" BINARY',
-                    f'FILE "{single_bin}" BINARY',
-                    line,
-                    flags=re.IGNORECASE,
-                )
+                new_line = CUE_FILE_REPLACE.sub(f'FILE "{single_bin}" BINARY', line)
                 new_lines.append(new_line)
         else:
             continue
@@ -351,9 +363,7 @@ def fix_cue_files():
 
 def merge_multi_bin_games():
     binmerge_cmd = BINMERGE
-    if not os.access(BINMERGE, os.X_OK) and os.path.exists(
-        "./binmerge/binmerge.py"
-    ):
+    if not os.access(BINMERGE, os.X_OK) and os.path.exists("./binmerge/binmerge.py"):
         binmerge_cmd = [sys.executable, "./binmerge/binmerge.py"]
 
     cue_files = glob.glob(os.path.join(JPS1_DIR, "*.[cC][uU][eE]"))
@@ -364,7 +374,7 @@ def merge_multi_bin_games():
 
         with open(cue_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
-                match = re.search(r'FILE\s+"([^"]+)"', line)
+                match = CUE_FILE_RE.search(line)
                 if match:
                     bin_files.append(match.group(1))
 
@@ -383,9 +393,7 @@ def merge_multi_bin_games():
                 else [binmerge_cmd, "--outdir", JPS1_DIR, target_cue, stem]
             )
 
-            result = subprocess.run(
-                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             if result.returncode == 0:
                 for f in glob.glob(os.path.join(MPS1_DIR, f"{stem}*")):
@@ -520,7 +528,7 @@ def main():
         print("Select target mode:")
         print("1 - USB")
         print("2 - SMB")
-        
+
         choice = input("\nPress 1 for USB or 2 for SMB: ").strip()
         while choice not in ["1", "2"]:
             choice = input("Invalid option. Press 1 for USB or 2 for SMB: ").strip()
