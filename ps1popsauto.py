@@ -39,7 +39,6 @@ ROOT_ART_DIR = os.path.join(POPSTARTER_FINAL_DIR, "ART")
 TMP_ART_DIR = os.path.join(POPSTARTER_FINAL_DIR, "TMPART")
 
 FINAL_APPS_DIR = os.path.join(POPSTARTER_FINAL_DIR, "APPS")
-CONF_APPS = os.path.join(POPSTARTER_FINAL_DIR, "conf_apps.cfg")
 
 POPS_ELF = os.path.join(POPS2_DIR, "POPSTARTER.ELF")
 
@@ -131,6 +130,7 @@ def extract_serial_from_bin(bin_path):
 
 def get_game_serials_map():
     game_map = {}
+    titles_map = {}
     bin_files = glob.glob(os.path.join(JPS1_DIR, "*.[bB][iI][nN]"))
 
     for bin_path in bin_files:
@@ -143,8 +143,9 @@ def get_game_serials_map():
             game_map[clean_name] = serial
             game_map[base_stem] = serial
             game_map[stem] = serial
+            titles_map[clean_name] = base_stem
 
-    return game_map
+    return game_map, titles_map
 
 
 def process_and_resize_image_ffmpeg(temp_img_path, out_path):
@@ -441,7 +442,7 @@ def convert_games():
     shutil.rmtree(tmp_work_dir, ignore_errors=True)
 
 
-def rename_and_move_to_rps1(game_serials):
+def rename_and_move_to_rps1():
     vcd_files = glob.glob(os.path.join(VPS1_DIR, "*.[vV][cC][dD]"))
 
     for vcd in vcd_files:
@@ -455,7 +456,7 @@ def rename_and_move_to_rps1(game_serials):
         shutil.move(vcd, dest)
 
 
-def build_final_structure():
+def build_final_structure(titles_map):
     if os.path.isdir(REPO_DIR):
         for bin_file in glob.glob(os.path.join(REPO_DIR, "*")):
             if os.path.isfile(bin_file):
@@ -463,9 +464,6 @@ def build_final_structure():
                 dest = os.path.join(FINAL_POPS_DIR, b_name)
                 if not os.path.exists(dest):
                     shutil.copy(bin_file, dest)
-
-    if not os.path.exists(CONF_APPS):
-        open(CONF_APPS, "w", encoding="utf-8").close()
 
     vcd_files = glob.glob(os.path.join(RPS1_DIR, "*.[vV][cC][dD]"))
     games = []
@@ -490,28 +488,25 @@ def build_final_structure():
 
     if os.path.isfile(POPS_ELF) and games:
         for game in games:
+            game_app_dir = os.path.join(FINAL_APPS_DIR, game)
+            os.makedirs(game_app_dir, exist_ok=True)
+
             elf_name = f"XX.{game}.ELF"
-            shutil.copy(POPS_ELF, os.path.join(FINAL_APPS_DIR, elf_name))
+            shutil.copy(POPS_ELF, os.path.join(game_app_dir, elf_name))
 
-    if games:
-        games.sort()
-        existing_entries = set()
-        with open(CONF_APPS, "r", encoding="utf-8") as f:
-            existing_entries = set(line.strip() for line in f)
+            display_title = titles_map.get(game, game)
 
-        with open(CONF_APPS, "a", encoding="utf-8") as f:
-            for game in games:
-                entry = f"{game}=mass:/APPS/XX.{game}.ELF"
-                if entry not in existing_entries:
-                    f.write(entry + "\n")
+            cfg_path = os.path.join(game_app_dir, "title.cfg")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                f.write(f"title={display_title}\nboot={elf_name}\n")
 
 
-def run_workflow(game_serials):
+def run_workflow(game_serials, titles_map):
     fix_cue_files()
     merge_multi_bin_games()
     convert_games()
-    rename_and_move_to_rps1(game_serials)
-    build_final_structure()
+    rename_and_move_to_rps1()
+    build_final_structure(titles_map)
 
 
 def main():
@@ -538,14 +533,14 @@ def main():
         for d in dirs:
             os.makedirs(d, exist_ok=True)
 
+        game_serials, titles_map = get_game_serials_map()
         sanitize_input_files()
-        game_serials = get_game_serials_map()
-        run_workflow(game_serials)
+        run_workflow(game_serials, titles_map)
         download_covers_opl(game_serials)
 
         remaining_cues = glob.glob(os.path.join(JPS1_DIR, "*.[cC][uU][eE]"))
         if len(remaining_cues) == 1:
-            run_workflow(game_serials)
+            run_workflow(game_serials, titles_map)
             remaining_cues = glob.glob(os.path.join(JPS1_DIR, "*.[cC][uU][eE]"))
 
         if len(remaining_cues) > 0:
