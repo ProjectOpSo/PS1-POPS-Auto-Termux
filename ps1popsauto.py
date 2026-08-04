@@ -177,7 +177,7 @@ def process_and_resize_image_ffmpeg(temp_img_path, out_path):
             pass
 
 
-def download_covers_opl(game_serials):
+def download_covers_opl(game_serials, mode_prefix):
     print("\n--- Downloading Cover Art (.png) ---")
     os.makedirs(ROOT_ART_DIR, exist_ok=True)
     os.makedirs(TMP_ART_DIR, exist_ok=True)
@@ -217,7 +217,7 @@ def download_covers_opl(game_serials):
                     serial = v
                     break
 
-        app_cover_name = f"XX.{vcd_stem}.ELF_COV.png"
+        app_cover_name = f"{mode_prefix}{vcd_stem}.ELF_COV.png"
         target_app_cover = os.path.join(ROOT_ART_DIR, app_cover_name)
 
         if os.path.exists(target_app_cover):
@@ -456,7 +456,7 @@ def rename_and_move_to_rps1():
         shutil.move(vcd, dest)
 
 
-def build_final_structure(titles_map):
+def build_final_structure(titles_map, mode_prefix):
     if os.path.isdir(REPO_DIR):
         for bin_file in glob.glob(os.path.join(REPO_DIR, "*")):
             if os.path.isfile(bin_file):
@@ -491,7 +491,7 @@ def build_final_structure(titles_map):
             game_app_dir = os.path.join(FINAL_APPS_DIR, game)
             os.makedirs(game_app_dir, exist_ok=True)
 
-            elf_name = f"XX.{game}.ELF"
+            elf_name = f"{mode_prefix}{game}.ELF"
             shutil.copy(POPS_ELF, os.path.join(game_app_dir, elf_name))
 
             display_title = titles_map.get(game, game)
@@ -501,12 +501,12 @@ def build_final_structure(titles_map):
                 f.write(f"title={display_title}\nboot={elf_name}\n")
 
 
-def run_workflow(game_serials, titles_map):
+def run_workflow(game_serials, titles_map, mode_prefix):
     fix_cue_files()
     merge_multi_bin_games()
     convert_games()
     rename_and_move_to_rps1()
-    build_final_structure(titles_map)
+    build_final_structure(titles_map, mode_prefix)
 
 
 def main():
@@ -517,6 +517,15 @@ def main():
         print("========================================")
         print("         POPS AUTO CONVERTER            ")
         print("========================================")
+        print("Select target mode:")
+        print("1 - USB")
+        print("2 - SMB")
+        
+        choice = input("\nPress 1 for USB or 2 for SMB: ").strip()
+        while choice not in ["1", "2"]:
+            choice = input("Invalid option. Press 1 for USB or 2 for SMB: ").strip()
+
+        mode_prefix = "XX." if choice == "1" else "SB."
 
         dirs = [
             POPS2_DIR,
@@ -535,12 +544,12 @@ def main():
 
         game_serials, titles_map = get_game_serials_map()
         sanitize_input_files()
-        run_workflow(game_serials, titles_map)
-        download_covers_opl(game_serials)
+        run_workflow(game_serials, titles_map, mode_prefix)
+        download_covers_opl(game_serials, mode_prefix)
 
         remaining_cues = glob.glob(os.path.join(JPS1_DIR, "*.[cC][uU][eE]"))
         if len(remaining_cues) == 1:
-            run_workflow(game_serials, titles_map)
+            run_workflow(game_serials, titles_map, mode_prefix)
             remaining_cues = glob.glob(os.path.join(JPS1_DIR, "*.[cC][uU][eE]"))
 
         if len(remaining_cues) > 0:
