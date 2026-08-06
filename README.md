@@ -59,7 +59,7 @@ cd cue2pops-linux && \
 make && \
 chmod +x cue2pops && \
 cd .. && \
-chmod +x ps1popsauto.py cheats.sh
+chmod +x ps1popsauto.py cheats.py
 ```
 
 ## To update
@@ -79,7 +79,7 @@ cd cue2pops-linux && \
 make && \
 chmod +x cue2pops && \
 cd .. && \
-chmod +x ps1popsauto.py cheats.sh
+chmod +x ps1popsauto.py cheats.py
 ```
 
 ## run
