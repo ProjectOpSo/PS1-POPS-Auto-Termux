@@ -90,7 +90,7 @@ chmod +x ps1popsauto.py cheats.sh
 ## cheats
 
 ```
-./cheats.sh
+./cheats.py
 ```
 **The script automatically:**
 * Merges multi-track games.
