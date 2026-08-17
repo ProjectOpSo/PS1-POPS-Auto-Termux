@@ -10,7 +10,7 @@ The `ps1popsauto.py` script automates the entire conversion process, including m
 
 ```text
 PS1-POPS-Auto-Termux/
-├── cue2pops-linux/      # cue2pops source compiled for Termux
+├── cue2pops-android/      # cue2pops source compiled for Termux
 ├── binmerge/            # Multi-track BIN merger
 ├── POPS-binaries/       # POPStarter binaries and BIOS files
 └── ps1popsauto.py       # Main automation script
