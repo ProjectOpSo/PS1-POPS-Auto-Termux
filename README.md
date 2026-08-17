@@ -47,8 +47,6 @@ termux-setup-storage
 ### 2. Install the dependencies and clone this repository
 
 ```bash
-cd $HOME && \
-rm -rf PS1-POPS-Auto-Termux && \
 pkg update -y && \
 pkg upgrade -y && \
 pkg install -y git make clang python ffmpeg && \
@@ -67,6 +65,8 @@ chmod +x ps1popsauto.py cheats.py
 ## To update
 
 ```bash
+cd $HOME && \
+rm -rf PS1-POPS-Auto-Termux && \
 pkg update -y && \
 pkg upgrade -y && \
 pkg install -y git make clang python ffmpeg && \
