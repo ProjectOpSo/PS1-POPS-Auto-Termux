@@ -47,15 +47,17 @@ termux-setup-storage
 ### 2. Install the dependencies and clone this repository
 
 ```bash
+cd $HOME && \
+rm -rf PS1-POPS-Auto-Termux && \
 pkg update -y && \
 pkg upgrade -y && \
 pkg install -y git make clang python ffmpeg && \
 git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && \
 cd PS1-POPS-Auto-Termux && \
-git clone https://github.com/makefu/cue2pops-linux.git cue2pops-linux && \
+git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git cue2pops-android && \
 git clone https://github.com/putnam/binmerge.git && \
 git clone https://github.com/AnimMouse/POPS-binaries.git && \
-cd cue2pops-linux && \
+cd cue2pops-android && \
 make && \
 chmod +x cue2pops && \
 cd .. && \
@@ -65,21 +67,20 @@ chmod +x ps1popsauto.py cheats.py
 ## To update
 
 ```bash
-cd $HOME && \
-rm -rf PS1-POPS-Auto-Termux && \
 pkg update -y && \
 pkg upgrade -y && \
 pkg install -y git make clang python ffmpeg && \
 git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && \
 cd PS1-POPS-Auto-Termux && \
-git clone https://github.com/makefu/cue2pops-linux.git cue2pops-linux && \
+git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git cue2pops-android && \
 git clone https://github.com/putnam/binmerge.git && \
 git clone https://github.com/AnimMouse/POPS-binaries.git && \
-cd cue2pops-linux && \
+cd cue2pops-android && \
 make && \
 chmod +x cue2pops && \
 cd .. && \
 chmod +x ps1popsauto.py cheats.py
+
 ```
 
 ## run
