@@ -63,7 +63,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CAD_TXT = os.path.join(SCRIPT_DIR, "cad.txt")
 
 REPO_DIR = "./POPS-binaries"
-CUE2POPS = "./cue2pops-linux/cue2pops"
+CUE2POPS = "./cue2pops-android/cue2pops"
 BINMERGE = "./binmerge/binmerge"
 
 
@@ -428,7 +428,7 @@ def convert_games():
 
         try:
             subprocess.run(
-                [CUE2POPS, cue_path, tmp_vcd],
+                [CUE2POPS, "--output", tmp_work_dir, cue_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=900,
