@@ -72,7 +72,7 @@ cd "$HOME" && rm -rf PS1-POPS-Auto-Termux && pkg update -y && pkg upgrade -y && 
 
 ## Credits
 
-* **makefu** — [cue2pops-linux](https://github.com/makefu/cue2pops-linux.git)
+* **ProjectOpSo** — [cue2pops-android](https://github.com/ProjectOpSo/cue2pops-android)
   * Portable C implementation of `cue2pops`.
 
 * **putnam** — [binmerge](https://github.com/putnam/binmerge)
