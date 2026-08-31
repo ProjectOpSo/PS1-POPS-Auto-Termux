@@ -61,7 +61,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CAD_TXT = os.path.join(SCRIPT_DIR, "cad.txt")
 
 REPO_DIR = "./POPS-binaries"
-RCUE2POPS = os.path.join(SCRIPT_DIR, "rcue2pops.py")
+# Aponta diretamente para a pasta cue2pops-android sem mover o script
+RCUE2POPS = os.path.join(SCRIPT_DIR, "cue2pops-android", "rcue2pops.py")
 BINMERGE = "./binmerge/binmerge"
 
 
@@ -415,7 +416,7 @@ def convert_games():
         tmp_vcd = os.path.join(tmp_work_dir, f"{stem}.VCD")
 
         try:
-            # Executa o script rcue2pops.py usando o interpretador Python atual
+            # Executa com python /caminho/cue2pops-android/rcue2pops.py
             subprocess.run(
                 [sys.executable, RCUE2POPS, cue_path, "-o", tmp_work_dir, "-f"],
                 stdout=subprocess.DEVNULL,
