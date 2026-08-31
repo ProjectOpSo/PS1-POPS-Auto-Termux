@@ -61,7 +61,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CAD_TXT = os.path.join(SCRIPT_DIR, "cad.txt")
 
 REPO_DIR = "./POPS-binaries"
-CUE2POPS = "./cue2pops-android/cue2pops"
+RCUE2POPS = os.path.join(SCRIPT_DIR, "rcue2pops.py")
 BINMERGE = "./binmerge/binmerge"
 
 
@@ -398,7 +398,8 @@ def convert_games():
     tmp_work_dir = os.path.join(POPS2_DIR, ".tmp_conv")
     os.makedirs(tmp_work_dir, exist_ok=True)
 
-    if not os.access(CUE2POPS, os.X_OK) and not os.path.exists(CUE2POPS):
+    if not os.path.exists(RCUE2POPS):
+        print(f"[ERROR] Script de conversão não encontrado: {RCUE2POPS}")
         shutil.rmtree(tmp_work_dir, ignore_errors=True)
         return
 
@@ -414,8 +415,9 @@ def convert_games():
         tmp_vcd = os.path.join(tmp_work_dir, f"{stem}.VCD")
 
         try:
+            # Executa o script rcue2pops.py usando o interpretador Python atual
             subprocess.run(
-                [CUE2POPS, "--output", tmp_work_dir, cue_path],
+                [sys.executable, RCUE2POPS, cue_path, "-o", tmp_work_dir, "-f"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=900,
