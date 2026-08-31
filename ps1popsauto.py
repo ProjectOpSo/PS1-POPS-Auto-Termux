@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.request
 
@@ -53,7 +52,6 @@ POPSTARTER_FINAL_DIR = os.path.join(POPS2_DIR, ".POPSTARTER")
 FINAL_POPS_DIR = os.path.join(POPSTARTER_FINAL_DIR, "POPS")
 
 ROOT_ART_DIR = os.path.join(POPSTARTER_FINAL_DIR, "ART")
-TMP_ART_DIR = os.path.join(POPSTARTER_FINAL_DIR, "TMPART")
 
 FINAL_APPS_DIR = os.path.join(POPSTARTER_FINAL_DIR, "APPS")
 
@@ -110,30 +108,33 @@ def format_raw_serial(raw):
     return None
 
 
-def extract_serial_from_bin(bin_path, chunk_size=1024 * 1024):
+def extract_serial_from_bin(bin_path, chunk_size=512 * 1024):
     if not os.path.exists(bin_path):
         return None
     try:
-        buffer = ""
+        overlap = 1024
+        window = bytearray()
         with open(bin_path, "rb") as f:
             while True:
-                data = f.read(chunk_size)
-                if not data:
+                chunk = f.read(chunk_size)
+                if not chunk:
                     break
 
-                buffer += data.decode("latin-1", errors="ignore")
+                window.extend(chunk)
+                text = window.decode("latin-1", errors="ignore")
 
-                for m in SERIAL_MATCH_RE.findall(buffer):
+                for m in SERIAL_MATCH_RE.findall(text):
                     formatted = format_raw_serial(m)
                     if formatted:
                         return formatted
 
-                for m in ALT_SERIAL_RE.findall(buffer):
+                for m in ALT_SERIAL_RE.findall(text):
                     formatted = format_raw_serial(m)
                     if formatted:
                         return formatted
 
-                buffer = buffer[-1024:]
+                if len(window) > overlap:
+                    del window[:-overlap]
 
     except (OSError, IOError):
         pass
@@ -193,50 +194,47 @@ def process_and_resize_image_ffmpeg(temp_img_path, out_path):
     else:
         shutil.copy(temp_img_path, out_path)
 
-    if hasattr(os, "sync"):
-        try:
-            os.sync()
-        except Exception:
-            pass
-
 
 def download_covers_opl(game_serials, mode_prefix):
     print("\n--- Downloading Cover Art (.png) ---")
     os.makedirs(ROOT_ART_DIR, exist_ok=True)
-    os.makedirs(TMP_ART_DIR, exist_ok=True)
 
     cad_urls = []
     if os.path.exists(CAD_TXT):
         with open(CAD_TXT, "r", encoding="utf-8", errors="ignore") as f:
             cad_urls = [line.strip() for line in f if line.strip().startswith("http")]
 
-    search_dirs = [FINAL_POPS_DIR]
-    found_vcds = []
-
-    for s_dir in search_dirs:
-        for path in glob.glob(os.path.join(s_dir, "*.[vV][cC][dD]")):
-            base = os.path.basename(path)
-            found_vcds.append(base)
+    found_vcds = [
+        os.path.basename(p)
+        for p in glob.glob(os.path.join(FINAL_POPS_DIR, "*.[vV][cC][dD]"))
+    ]
 
     if not found_vcds:
         print("[!] No games found for cover downloading.")
-        time.sleep(2)
         return
 
     headers = {"User-Agent": "Mozilla/5.0 (Android; Termux)"}
+
+    # Pre-index fuzzy search map for fast lookup
+    lowered_serials = [(k.lower(), v) for k, v in game_serials.items()]
 
     for vcd_filename in sorted(found_vcds):
         vcd_stem = os.path.splitext(vcd_filename)[0]
 
         game_title = vcd_stem
         clean_game_name = sanitize_name(game_title)
+        
+        # 1. Direct O(1) lookup
         serial = (
             game_serials.get(game_title)
             or game_serials.get(clean_game_name)
         )
+        
+        # 2. Fallback fuzzy search only if direct search fails
         if not serial:
-            for k, v in game_serials.items():
-                if k.lower() in clean_game_name.lower() or clean_game_name.lower() in k.lower():
+            clean_lower = clean_game_name.lower()
+            for k_lower, v in lowered_serials:
+                if k_lower in clean_lower or clean_lower in k_lower:
                     serial = v
                     break
 
@@ -289,12 +287,7 @@ def download_covers_opl(game_serials, mode_prefix):
                     continue
 
         if downloaded and raw_download_path and os.path.exists(raw_download_path):
-            tmp_app = os.path.join(TMP_ART_DIR, "app_" + app_cover_name)
-
-            process_and_resize_image_ffmpeg(raw_download_path, tmp_app)
-
-            shutil.move(tmp_app, target_app_cover)
-
+            process_and_resize_image_ffmpeg(raw_download_path, target_app_cover)
             if os.path.exists(raw_download_path):
                 os.remove(raw_download_path)
             print("  [✓] Cover processed to PNG (pal8) via FFmpeg.")
@@ -303,9 +296,7 @@ def download_covers_opl(game_serials, mode_prefix):
                 os.remove(raw_download_path)
             print("  [X] Cover not found.")
 
-    shutil.rmtree(TMP_ART_DIR, ignore_errors=True)
     print("\n[*] Cover downloading process completed.")
-    time.sleep(2)
 
 
 def fix_cue_files():
@@ -422,17 +413,12 @@ def convert_games():
 
         tmp_vcd = os.path.join(tmp_work_dir, f"{stem}.VCD")
 
-        def set_prio():
-            if hasattr(os, "nice"):
-                os.nice(19)
-
         try:
             subprocess.run(
                 [CUE2POPS, "--output", tmp_work_dir, cue_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=900,
-                preexec_fn=set_prio if os.name == "posix" else None,
             )
         except subprocess.TimeoutExpired:
             pass
@@ -444,8 +430,6 @@ def convert_games():
 
         for f in glob.glob(os.path.join(tmp_work_dir, f"{stem}*")):
             os.remove(f)
-
-        time.sleep(1)
 
     shutil.rmtree(tmp_work_dir, ignore_errors=True)
 
@@ -550,8 +534,9 @@ def main():
         for d in dirs:
             os.makedirs(d, exist_ok=True)
 
-        game_serials, titles_map = get_game_serials_map()
         sanitize_input_files()
+        game_serials, titles_map = get_game_serials_map()
+
         run_workflow(game_serials, titles_map, mode_prefix)
         download_covers_opl(game_serials, mode_prefix)
 
