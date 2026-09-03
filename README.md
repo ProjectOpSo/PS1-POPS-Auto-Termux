@@ -47,7 +47,7 @@ termux-setup-storage
 ### 2. Install the dependencies and clone this repository
 
 ```bash
-cd "$HOME" && dpkg --configure -a && apt --fix-broken install -y && pkg update -y && pkg upgrade -y && pkg install -y git make clang python ffmpeg && rm -rf PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && cd PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/cue2pops-android.git cue2pops-android && git clone https://github.com/putnam/binmerge.git && git clone https://github.com/AnimMouse/POPS-binaries.git && cd cue2pops-android && cd .. && chmod +x ps1popsauto.py cheats.py
+cd "$HOME" && dpkg --configure -a && apt --fix-broken install -y && pkg update -y && pkg upgrade -y && pkg install -y git make clang python ffmpeg && rm -rf PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && cd PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/cue2pops-android.git cue2pops-android && git clone https://github.com/ProjectOpSo/binmerge.git && git clone https://github.com/AnimMouse/POPS-binaries.git && cd cue2pops-android && cd .. && chmod +x ps1popsauto.py cheats.py
 ```
 
 ## run
@@ -75,7 +75,7 @@ cd "$HOME" && dpkg --configure -a && apt --fix-broken install -y && pkg update -
 * **ProjectOpSo** — [cue2pops-android](https://github.com/ProjectOpSo/cue2pops-android)
   * Portable C implementation of `cue2pops`.
 
-* **putnam** — [binmerge](https://github.com/putnam/binmerge)
+* **ProjectOpSo** — [binmerge](https://github.com/ProjectOpSo/binmerge)
   * Multi-track PlayStation image merger.
 
 * **AnimMouse** — [POPS-binaries](https://github.com/AnimMouse/POPS-binaries)
