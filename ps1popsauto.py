@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+#
+#  POPS Auto Converter
+#
+
 import glob
 import os
 import re
@@ -9,9 +13,6 @@ import tempfile
 import urllib.error
 import urllib.request
 
-SANITIZE_RE = re.compile(
-    r'[@#$_&\-\+\(\)/\*"\'\:;\!\?,\~`\|•√π÷×§∆£¢€¥\^°=\{\}\\%\©®™✓\[\]<>\.\,\s]+'
-)
 SERIAL_PRIMARY_RE = re.compile(
     r"([A-Z]{4})[_-]?([0-9]{3})\.?([0-9]{2})", re.IGNORECASE
 )
@@ -30,6 +31,7 @@ HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
 
 def detect_storage():
+  """Detect system storage path dynamically."""
   candidates = [
       "/sdcard",
       "/storage/emulated/0",
@@ -66,15 +68,8 @@ RCUE2POPS = os.path.join(SCRIPT_DIR, "cue2pops-android", "rcue2pops.py")
 BINMERGE = "./binmerge/binmerge"
 
 
-def sanitize_name(name):
-  return SANITIZE_RE.sub("", name).strip()
-
-
 def validate_jps1_structure():
-  """Check if there are any loose files directly inside the JPS1 directory.
-
-  Requires every game to be placed inside its own individual subfolder.
-  """
+  """Check if there are loose files in JPS1 directory."""
   loose_files = [
       f
       for f in os.listdir(JPS1_DIR)
@@ -84,19 +79,12 @@ def validate_jps1_structure():
     print("\n" + "=" * 60)
     print("[ERROR] Loose files detected directly inside 'JPS1' folder!")
     print("Please place each game inside its own individual subfolder.")
-    print("-" * 60)
-    print(
-        "[ERRO] Arquivos soltos detectados diretamente dentro da pasta"
-        " 'JPS1'!"
-    )
-    print(
-        "Por favor, coloque cada jogo dentro de sua própria pasta individual."
-    )
     print("=" * 60 + "\n")
     sys.exit(1)
 
 
 def fix_cue_files_in_folder(folder_path):
+  """Fix path references inside CUE files without altering folder names."""
   cue_files = glob.glob(os.path.join(folder_path, "*.[cC][uU][eE]"))
   for cue_path in cue_files:
     cue_dir = os.path.dirname(cue_path)
@@ -149,10 +137,7 @@ def fix_cue_files_in_folder(folder_path):
 
 
 def process_folders_and_merge():
-  """Scan subfolders, merge multi-bin games, and rename the folder and files
-
-  while they are still in BIN/CUE format.
-  """
+  """Merge multi-bin games using binmerge while preserving folder names and spaces."""
   binmerge_cmd = BINMERGE
   if not os.access(BINMERGE, os.X_OK) and os.path.exists(
       "./binmerge/binmerge.py"
@@ -165,7 +150,7 @@ def process_folders_and_merge():
       if os.path.isdir(os.path.join(JPS1_DIR, d))
   ]
 
-  print("\n[*] Analyzing game folders, merging multi-bin files, and renaming...")
+  print("\n[*] Analyzing game folders and merging multi-bin tracks...")
 
   for folder in subfolders:
     fix_cue_files_in_folder(folder)
@@ -179,56 +164,26 @@ def process_folders_and_merge():
 
     # Merge tracks if the game has multiple BIN files
     if len(bin_files) > 1:
-      stem = os.path.splitext(os.path.basename(cue_path))[0]
+      merged_basename = f"{folder_name} (Merged)"
       cmd = (
-          binmerge_cmd + ["--outdir", folder, cue_path, stem]
+          binmerge_cmd + ["--outdir", folder, cue_path, merged_basename]
           if isinstance(binmerge_cmd, list)
-          else [binmerge_cmd, "--outdir", folder, cue_path, stem]
+          else [binmerge_cmd, "--outdir", folder, cue_path, merged_basename]
       )
       res = subprocess.run(
           cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
       )
       if res.returncode == 0:
-        # Delete old track files, keeping only the merged output
+        # Remove original track files after successful merge
         for b in bin_files:
           if os.path.exists(b):
             os.remove(b)
         if os.path.exists(cue_path):
           os.remove(cue_path)
 
-    # Rename BIN and CUE files using the sanitized folder name
-    clean_title = sanitize_name(folder_name)
-    if not clean_title:
-      clean_title = "GAME"
-
-    updated_cues = glob.glob(os.path.join(folder, "*.[cC][uU][eE]"))
-    updated_bins = glob.glob(os.path.join(folder, "*.[bB][iI][nN]"))
-
-    if updated_cues and updated_bins:
-      target_cue = os.path.join(folder, f"{clean_title}.cue")
-      target_bin = os.path.join(folder, f"{clean_title}.bin")
-
-      os.rename(updated_cues[0], target_cue)
-      os.rename(updated_bins[0], target_bin)
-
-      # Update the FILE reference line inside the .cue file
-      with open(target_cue, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
-      with open(target_cue, "w", encoding="utf-8") as f:
-        for line in lines:
-          f.write(
-              CUE_FILE_REPLACE.sub(
-                  f'FILE "{os.path.basename(target_bin)}" BINARY', line
-              )
-          )
-
-    # Rename the container folder
-    new_folder_path = os.path.join(JPS1_DIR, clean_title)
-    if folder != new_folder_path and not os.path.exists(new_folder_path):
-      os.rename(folder, new_folder_path)
-
 
 def format_raw_serial(raw):
+  """Format raw game serial string."""
   raw = raw.upper().strip()
   if ";" in raw:
     raw = raw.split(";")[0].strip()
@@ -241,6 +196,7 @@ def format_raw_serial(raw):
 
 
 def extract_serial_from_bin(bin_path, chunk_size=512 * 1024):
+  """Extract game serial from BIN file header."""
   if not os.path.exists(bin_path):
     return None
   try:
@@ -272,6 +228,7 @@ def extract_serial_from_bin(bin_path, chunk_size=512 * 1024):
 
 
 def get_game_serials_map():
+  """Map game titles to extracted serial numbers."""
   game_map = {}
   titles_map = {}
   bin_files = glob.glob(os.path.join(JPS1_DIR, "**", "*.[bB][iI][nN]"))
@@ -279,19 +236,18 @@ def get_game_serials_map():
   for bin_path in bin_files:
     stem = os.path.splitext(os.path.basename(bin_path))[0]
     base_stem = TRACK_RE.sub("", stem).strip()
-    clean_name = sanitize_name(base_stem)
 
     serial = extract_serial_from_bin(bin_path)
     if serial:
-      game_map[clean_name] = serial
       game_map[base_stem] = serial
       game_map[stem] = serial
-      titles_map[clean_name] = base_stem
+      titles_map[stem] = base_stem
 
   return game_map, titles_map
 
 
 def process_and_resize_image_ffmpeg(temp_img_path, out_path):
+  """Process downloaded cover image using FFmpeg."""
   os.makedirs(os.path.dirname(out_path), exist_ok=True)
   if HAS_FFMPEG:
     with tempfile.NamedTemporaryFile(
@@ -336,6 +292,7 @@ def process_and_resize_image_ffmpeg(temp_img_path, out_path):
 
 
 def download_covers_opl(game_serials, mode_prefix):
+  """Download covers for converted games based on game serial."""
   print("\n--- Downloading Cover Art (.png) ---")
   os.makedirs(ROOT_ART_DIR, exist_ok=True)
 
@@ -352,21 +309,11 @@ def download_covers_opl(game_serials, mode_prefix):
     print("[!] No games found for cover downloading.")
     return
 
-  headers = {"User-Agent": "Mozilla/5.0 (Android; Termux)"}
-  lowered_serials = [(k.lower(), v) for k, v in game_serials.items()]
+  headers = {"User-Agent": "Mozilla/5.0"}
 
   for vcd_filename in sorted(found_vcds):
     vcd_stem = os.path.splitext(vcd_filename)[0]
-    game_title = vcd_stem
-    clean_game_name = sanitize_name(game_title)
-
-    serial = game_serials.get(game_title) or game_serials.get(clean_game_name)
-    if not serial:
-      clean_lower = clean_game_name.lower()
-      for k_lower, v in lowered_serials:
-        if k_lower in clean_lower or clean_lower in k_lower:
-          serial = v
-          break
+    serial = game_serials.get(vcd_stem)
 
     app_cover_name = f"{mode_prefix}{vcd_stem}.ELF_COV.png"
     target_app_cover = os.path.join(ROOT_ART_DIR, app_cover_name)
@@ -464,7 +411,6 @@ def convert_games():
 
     if os.path.exists(tmp_vcd) and os.path.getsize(tmp_vcd) > 0:
       shutil.move(tmp_vcd, out_vcd)
-      # Remove the game's parent folder from JPS1 upon successful conversion
       parent_dir = os.path.dirname(cue_path)
       shutil.rmtree(parent_dir, ignore_errors=True)
 
@@ -475,6 +421,7 @@ def convert_games():
 
 
 def move_to_rps1():
+  """Move converted VCD files to RPS1 directory."""
   vcd_files = glob.glob(os.path.join(VPS1_DIR, "*.[vV][cC][dD]"))
   for vcd in vcd_files:
     base_vcd = os.path.basename(vcd)
@@ -483,6 +430,7 @@ def move_to_rps1():
 
 
 def build_final_structure(titles_map, mode_prefix):
+  """Build final directory structure for POPStarter execution."""
   if os.path.isdir(REPO_DIR):
     for bin_file in glob.glob(os.path.join(REPO_DIR, "*")):
       if os.path.isfile(bin_file):
@@ -561,16 +509,11 @@ def main():
     for d in dirs:
       os.makedirs(d, exist_ok=True)
 
-    # 1. Strictly validate loose files in JPS1 root
     validate_jps1_structure()
-
-    # 2. Merge tracks and rename files inside subfolders BEFORE conversion
     process_folders_and_merge()
 
-    # 3. Map serial IDs
     game_serials, titles_map = get_game_serials_map()
 
-    # 4. Convert organized games to VCD format
     convert_games()
     move_to_rps1()
     build_final_structure(titles_map, mode_prefix)
