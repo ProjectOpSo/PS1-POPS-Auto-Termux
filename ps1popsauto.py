@@ -162,13 +162,12 @@ def process_folders_and_merge():
     folder_name = os.path.basename(folder)
     bin_files = glob.glob(os.path.join(folder, "*.[bB][iI][nN]"))
 
-    # Merge tracks if the game has multiple BIN files
+    # Merge tracks if the game has multiple BIN files using exact folder name
     if len(bin_files) > 1:
-      merged_basename = f"{folder_name} (Merged)"
       cmd = (
-          binmerge_cmd + ["--outdir", folder, cue_path, merged_basename]
+          binmerge_cmd + ["--outdir", folder, cue_path, folder_name]
           if isinstance(binmerge_cmd, list)
-          else [binmerge_cmd, "--outdir", folder, cue_path, merged_basename]
+          else [binmerge_cmd, "--outdir", folder, cue_path, folder_name]
       )
       res = subprocess.run(
           cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -176,9 +175,9 @@ def process_folders_and_merge():
       if res.returncode == 0:
         # Remove original track files after successful merge
         for b in bin_files:
-          if os.path.exists(b):
+          if os.path.exists(b) and os.path.basename(b) != f"{folder_name}.bin":
             os.remove(b)
-        if os.path.exists(cue_path):
+        if os.path.exists(cue_path) and os.path.basename(cue_path) != f"{folder_name}.cue":
           os.remove(cue_path)
 
 
@@ -247,7 +246,7 @@ def get_game_serials_map():
 
 
 def process_and_resize_image_ffmpeg(temp_img_path, out_path):
-  """Process downloaded cover image using FFmpeg."""
+  """Process downloaded cover image safely using FFmpeg."""
   os.makedirs(os.path.dirname(out_path), exist_ok=True)
   if HAS_FFMPEG:
     with tempfile.NamedTemporaryFile(
@@ -264,6 +263,8 @@ def process_and_resize_image_ffmpeg(temp_img_path, out_path):
         "scale=200:200",
         "-pix_fmt",
         "pal8",
+        "-pred",
+        "mixed",
         tmp_name,
     ]
     try:
@@ -292,7 +293,7 @@ def process_and_resize_image_ffmpeg(temp_img_path, out_path):
 
 
 def download_covers_opl(game_serials, mode_prefix):
-  """Download covers for converted games based on game serial."""
+  """Download covers for converted games with full browser User-Agent."""
   print("\n--- Downloading Cover Art (.png) ---")
   os.makedirs(ROOT_ART_DIR, exist_ok=True)
 
@@ -309,7 +310,12 @@ def download_covers_opl(game_serials, mode_prefix):
     print("[!] No games found for cover downloading.")
     return
 
-  headers = {"User-Agent": "Mozilla/5.0"}
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          " (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+      )
+  }
 
   for vcd_filename in sorted(found_vcds):
     vcd_stem = os.path.splitext(vcd_filename)[0]
@@ -335,16 +341,18 @@ def download_covers_opl(game_serials, mode_prefix):
     url_to_try = cad_match[0] if cad_match else target_cad_url
 
     with tempfile.NamedTemporaryFile(
-        delete=False, suffix=".img", dir=POPS2_DIR
+        delete=False, suffix=".jpg", dir=POPS2_DIR
     ) as tmp_file:
       raw_download_path = tmp_file.name
 
     try:
       req = urllib.request.Request(url_to_try, headers=headers)
       with urllib.request.urlopen(req, timeout=10) as response:
-        with open(raw_download_path, "wb") as out_file:
-          out_file.write(response.read())
-      downloaded = True
+        data = response.read()
+        if len(data) > 2048:
+          with open(raw_download_path, "wb") as out_file:
+            out_file.write(data)
+          downloaded = True
     except Exception:
       pass
 
@@ -358,10 +366,12 @@ def download_covers_opl(game_serials, mode_prefix):
         try:
           req = urllib.request.Request(url, headers=headers)
           with urllib.request.urlopen(req, timeout=8) as response:
-            with open(raw_download_path, "wb") as out_file:
-              out_file.write(response.read())
-          downloaded = True
-          break
+            data = response.read()
+            if len(data) > 2048:
+              with open(raw_download_path, "wb") as out_file:
+                out_file.write(data)
+              downloaded = True
+              break
         except Exception:
           continue
 
