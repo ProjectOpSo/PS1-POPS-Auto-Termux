@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  POPS Auto Converter
+#  POPS Auto Converter (com integração do Binmerge)
 #
 
 import glob
@@ -30,8 +30,9 @@ TRACK_RE = re.compile(r"\s*\([T|t]rack\s*[0-9]+\)", re.IGNORECASE)
 CUE_FILE_RE = re.compile(r'FILE\s+"([^"]+)"', re.IGNORECASE)
 CUE_FILE_REPLACE = re.compile(r'FILE ".*" BINARY', re.IGNORECASE)
 
-# Check if FFmpeg is available on the host environment
+# Check if FFmpeg and Binmerge are available in system environment
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
+HAS_BINMERGE = shutil.which("binmerge") is not None
 
 
 def detect_storage():
@@ -48,7 +49,7 @@ def detect_storage():
     return "/sdcard"
 
 
-# Define main environment base directory and standard POPS2 directory tree (using absolute paths)
+# Define main environment base directory and standard POPS2 directory tree
 BASE = os.path.abspath(detect_storage())
 POPS2_DIR = os.path.abspath(os.path.join(BASE, "Download", "POPS2"))
 
@@ -70,20 +71,13 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CAD_TXT = os.path.abspath(os.path.join(SCRIPT_DIR, "cad.txt"))
 
 REPO_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "POPS-binaries"))
+
+# Resolved path for r2cuepops.py / rcue2pops.py script
 RCUE2POPS = os.path.abspath(os.path.join(SCRIPT_DIR, "cue2pops-android", "rcue2pops.py"))
-
-# Locate binmerge executable dynamically relative to script directory
-BINMERGE_BIN = os.path.abspath(os.path.join(SCRIPT_DIR, "binmerge", "binmerge"))
-BINMERGE_PY = os.path.abspath(os.path.join(SCRIPT_DIR, "binmerge", "binmerge.py"))
-
-
-def get_binmerge_cmd():
-    """Resolve the execution command for binmerge independent of the current working directory."""
-    if os.access(BINMERGE_BIN, os.X_OK):
-        return [BINMERGE_BIN]
-    elif os.path.exists(BINMERGE_PY):
-        return [sys.executable, BINMERGE_PY]
-    return [BINMERGE_BIN]
+if not os.path.exists(RCUE2POPS):
+    alt_rcue2pops = os.path.abspath(os.path.join(SCRIPT_DIR, "cue2pops-android", "r2cuepops.py"))
+    if os.path.exists(alt_rcue2pops):
+        RCUE2POPS = alt_rcue2pops
 
 
 def sanitize_vcd_name(name):
@@ -403,6 +397,41 @@ def download_single_cover(sanitized_vcd_stem, serial, mode_prefix):
         print("  [X] Cover not found.")
 
 
+def run_binmerge_if_needed(cue_path, tmp_work_dir, sanitized_vcd_stem):
+    """Run binmerge to unify multi-bin tracks before sending to conversion."""
+    cue_dir = os.path.dirname(cue_path)
+    with os.scandir(cue_dir) as entries:
+        bin_files = [e.path for e in entries if e.is_file() and e.name.lower().endswith(".bin")]
+
+    # If only 1 BIN file exists, binmerge is not required
+    if len(bin_files) <= 1:
+        return cue_path, False
+
+    merged_output_prefix = os.path.join(tmp_work_dir, sanitized_vcd_stem)
+    merged_cue = f"{merged_output_prefix}.cue"
+
+    # Try system binmerge executable first, or fall back to python module execution
+    if HAS_BINMERGE:
+        cmd_binmerge = ["binmerge", "-o", tmp_work_dir, cue_path, sanitized_vcd_stem]
+    else:
+        cmd_binmerge = [sys.executable, "-m", "binmerge", "-o", tmp_work_dir, cue_path, sanitized_vcd_stem]
+
+    print(f"[*] Multiple BINs detected ({len(bin_files)} files). Merging with binmerge...")
+    try:
+        res = subprocess.run(cmd_binmerge, capture_output=True, text=True, timeout=600)
+        if res.returncode == 0 and os.path.exists(merged_cue):
+            print("  [✓] Tracks merged into a single CUE/BIN successfully.")
+            return merged_cue, True
+        else:
+            print(f"  [!] Binmerge failed with code {res.returncode}. Using original CUE.")
+            if res.stderr:
+                print(f"      {res.stderr.strip()}")
+    except Exception as e:
+        print(f"  [!] Exception during binmerge execution: {e}. Using original CUE.")
+
+    return cue_path, False
+
+
 def validate_conversion_inputs(cue_path):
     """Validate CUE/BIN files exist and are not empty before executing converter."""
     if not os.path.exists(cue_path):
@@ -440,56 +469,32 @@ def validate_conversion_inputs(cue_path):
     return True, first_bin_path
 
 
-def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
-    """Individual pipeline: Extract Serial -> Cover Download -> BIN Merge (MPS1) -> VCD Conversion (VPS1)."""
+def process_single_game(folder_path, tmp_work_dir, mode_prefix):
+    """Individual pipeline: Extract Serial -> Cover Download -> Binmerge (if needed) -> VCD Conversion (VPS1)."""
     folder_name = os.path.basename(folder_path)
     print(f"\n[*] Processing: {folder_name}")
+
+    fix_cue_files_in_folder(folder_path)
 
     with os.scandir(folder_path) as entries:
         files = [e for e in entries if e.is_file()]
 
     cue_files = [f.path for f in files if f.name.lower().endswith(".cue")]
-    bin_files = [f.path for f in files if f.name.lower().endswith(".bin")]
 
     if not cue_files:
         print(f"[!] No CUE file found in: {folder_name}")
         return None, None, "failed"
 
-    cue_path = os.path.abspath(cue_files[0])
+    original_cue_path = os.path.abspath(cue_files[0])
     original_title = TRACK_RE.sub("", folder_name).strip()
     sanitized_vcd_stem = sanitize_vcd_name(original_title)
 
-    # Extract serial from Track 1 BIN prior to modification
-    track1_bin = get_first_bin_from_cue(cue_path)
+    # Extract serial from Track 1 BIN prior to conversion
+    track1_bin = get_first_bin_from_cue(original_cue_path)
     serial = extract_serial_from_bin(track1_bin) if track1_bin else None
 
     # Download cover art
     download_single_cover(sanitized_vcd_stem, serial, mode_prefix)
-
-    target_cue_for_conversion = cue_path
-
-    # Multi-BIN handling
-    if len(bin_files) > 1:
-        fix_cue_files_in_folder(folder_path)
-        print(f"[*] Trying BIN merge: {folder_name}")
-        game_mps1_dir = os.path.join(MPS1_DIR, folder_name)
-        os.makedirs(game_mps1_dir, exist_ok=True)
-
-        cmd = binmerge_cmd + ["--outdir", game_mps1_dir, cue_path, sanitized_vcd_stem]
-        res = subprocess.run(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-
-        if res.returncode == 0:
-            print(f"[✓] Merge successful in MPS1: {folder_name}")
-            merged_cue = os.path.join(game_mps1_dir, f"{sanitized_vcd_stem}.cue")
-            if os.path.exists(merged_cue):
-                target_cue_for_conversion = os.path.abspath(merged_cue)
-        else:
-            print(f"[!] Merge unavailable, continuing with original files: {folder_name}")
-            shutil.rmtree(game_mps1_dir, ignore_errors=True)
-    else:
-        print(f"[*] Single BIN detected, skipping merge: {folder_name}")
 
     out_vcd = os.path.join(VPS1_DIR, f"{sanitized_vcd_stem}.VCD")
 
@@ -498,19 +503,17 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
         shutil.rmtree(folder_path, ignore_errors=True)
         return sanitized_vcd_stem, original_title, "skipped"
 
+    # Optional Binmerge execution for multi-BIN structures
+    active_cue_path, was_merged = run_binmerge_if_needed(original_cue_path, tmp_work_dir, sanitized_vcd_stem)
+
     # Pre-conversion validation
-    valid_inputs, active_bin_path = validate_conversion_inputs(target_cue_for_conversion)
+    valid_inputs, active_bin_path = validate_conversion_inputs(active_cue_path)
     if not valid_inputs:
         return None, None, "failed"
 
-    # Conversion
+    # Conversion using the updated rcue2pops CLI signature
     print(f"[*] Converting: {folder_name} -> {sanitized_vcd_stem}.VCD")
-    
-    # Prepare clean output temporary directory for this conversion
-    game_tmp_dir = os.path.join(tmp_work_dir, sanitized_vcd_stem)
-    os.makedirs(game_tmp_dir, exist_ok=True)
-
-    cmd_conv = [sys.executable, RCUE2POPS, target_cue_for_conversion, "-o", game_tmp_dir, "-f"]
+    cmd_conv = [sys.executable, RCUE2POPS, active_cue_path, out_vcd]
 
     res_conv = None
     try:
@@ -523,26 +526,22 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
     except subprocess.TimeoutExpired:
         print(f"[!] Conversion timed out after 900s: {folder_name}")
 
-    # Clean temporary MPS1 folder if created
-    game_mps1_dir = os.path.join(MPS1_DIR, folder_name)
-    if os.path.exists(game_mps1_dir):
-        shutil.rmtree(game_mps1_dir, ignore_errors=True)
+    # Clean up temporary binmerge artifacts if generated
+    if was_merged:
+        merged_bin = os.path.join(tmp_work_dir, f"{sanitized_vcd_stem}.bin")
+        if os.path.exists(active_cue_path):
+            os.remove(active_cue_path)
+        if os.path.exists(merged_bin):
+            os.remove(merged_bin)
 
-    # Check for any generated .VCD file inside output directory
-    generated_vcds = glob.glob(os.path.join(game_tmp_dir, "*.[vV][cC][dD]"))
+    if os.path.exists(out_vcd) and os.path.getsize(out_vcd) > 0:
+        print(f"[✓] VCD created successfully in VPS1: {sanitized_vcd_stem}.VCD")
+        shutil.rmtree(folder_path, ignore_errors=True)
+        return sanitized_vcd_stem, original_title, "success"
 
-    if generated_vcds and len(generated_vcds) >= 1:
-        selected_vcd = generated_vcds[0]
-        if os.path.exists(selected_vcd) and os.path.getsize(selected_vcd) > 0:
-            shutil.move(selected_vcd, out_vcd)
-            print(f"[✓] VCD created successfully in VPS1: {sanitized_vcd_stem}.VCD")
-            shutil.rmtree(game_tmp_dir, ignore_errors=True)
-            shutil.rmtree(folder_path, ignore_errors=True)
-            return sanitized_vcd_stem, original_title, "success"
-
-    # If VCD creation failed, display conversion diagnostics
+    # Diagnostic output if conversion failed
     print(f"\n[!] Conversion failed to produce VCD: {folder_name}")
-    print(f"    - CUE File: {target_cue_for_conversion}")
+    print(f"    - CUE File: {active_cue_path}")
     print(f"    - BIN File: {active_bin_path}")
     print(f"    - Command Executed: {' '.join(cmd_conv)}")
     
@@ -555,8 +554,6 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
     else:
         print("    - Return Code: Execution failed or timed out.")
 
-    print(f"    - Temporary files kept for diagnostic: {game_tmp_dir}\n")
-
     return None, None, "failed"
 
 
@@ -568,8 +565,6 @@ def process_all_games_sequentially(mode_prefix):
     if not os.path.exists(RCUE2POPS):
         print(f"[ERROR] Conversion script not found: {RCUE2POPS}")
         return {}, 0, 0, 0
-
-    binmerge_cmd = get_binmerge_cmd()
 
     if not os.path.exists(JPS1_DIR):
         return {}, 0, 0, 0
@@ -584,7 +579,7 @@ def process_all_games_sequentially(mode_prefix):
 
     for folder in subfolders:
         vcd_stem, original_title, status = process_single_game(
-            folder, binmerge_cmd, tmp_work_dir, mode_prefix
+            folder, tmp_work_dir, mode_prefix
         )
         if status == "success":
             success_count += 1
@@ -596,6 +591,10 @@ def process_all_games_sequentially(mode_prefix):
                 titles_map[vcd_stem] = original_title
         else:
             failed_count += 1
+
+    # Cleanup temporary work folder
+    if os.path.exists(tmp_work_dir):
+        shutil.rmtree(tmp_work_dir, ignore_errors=True)
 
     return titles_map, success_count, failed_count, skipped_count
 
