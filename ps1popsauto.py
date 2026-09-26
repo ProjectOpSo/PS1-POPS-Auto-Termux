@@ -510,8 +510,11 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
     game_tmp_dir = os.path.join(tmp_work_dir, sanitized_vcd_stem)
     os.makedirs(game_tmp_dir, exist_ok=True)
 
-    # Executa o rcue2pops passando o arquivo CUE, diretório de saída (-o) e sobrescrita (-f)
-    cmd_conv = [sys.executable, RCUE2POPS, target_cue_for_conversion, "-o", game_tmp_dir, "-f"]
+    # Set the VCD path inside the temporary directory
+    target_vcd_path = os.path.join(game_tmp_dir, f"{sanitized_vcd_stem}.VCD")
+
+    # Command adjusted according to rcue2pops.py syntax: input_cue [vcd_path]
+    cmd_conv = [sys.executable, RCUE2POPS, target_cue_for_conversion, target_vcd_path]
 
     res_conv = None
     try:
