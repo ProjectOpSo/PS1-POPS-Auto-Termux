@@ -48,7 +48,7 @@ def detect_storage():
     return "/sdcard"
 
 
-# Define main environment base directory and standard POPS2 directory tree (using absolute paths)
+# Define main environment base directory and standard POPS2 directory tree
 BASE = os.path.abspath(detect_storage())
 POPS2_DIR = os.path.abspath(os.path.join(BASE, "Download", "POPS2"))
 
@@ -70,7 +70,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CAD_TXT = os.path.abspath(os.path.join(SCRIPT_DIR, "cad.txt"))
 
 REPO_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "POPS-binaries"))
-RCUE2POPS = os.path.abspath(os.path.join(SCRIPT_DIR, "cue2pops-android", "rcue2pops.py"))
+RCUE2POPS = os.path.abspath(os.path.join(SCRIPT_DIR, "rcue2pops-android", "rcue2pops.py"))
 
 # Locate binmerge executable dynamically relative to script directory
 BINMERGE_BIN = os.path.abspath(os.path.join(SCRIPT_DIR, "binmerge", "binmerge"))
@@ -506,14 +506,12 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
     # Conversion
     print(f"[*] Converting: {folder_name} -> {sanitized_vcd_stem}.VCD")
     
-    # Prepare clean output temporary directory for this conversion
     game_tmp_dir = os.path.join(tmp_work_dir, sanitized_vcd_stem)
     os.makedirs(game_tmp_dir, exist_ok=True)
 
-    # Set the VCD path inside the temporary directory
     target_vcd_path = os.path.join(game_tmp_dir, f"{sanitized_vcd_stem}.VCD")
 
-    # Command adjusted according to rcue2pops.py syntax: input_cue [vcd_path]
+    # Command pointing to rcue2pops-android/rcue2pops.py
     cmd_conv = [sys.executable, RCUE2POPS, target_cue_for_conversion, target_vcd_path]
 
     res_conv = None
@@ -532,7 +530,7 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
     if os.path.exists(game_mps1_dir):
         shutil.rmtree(game_mps1_dir, ignore_errors=True)
 
-    # Check for any generated .VCD file inside output directory
+    # Check for generated .VCD
     generated_vcds = glob.glob(os.path.join(game_tmp_dir, "*.[vV][cC][dD]"))
 
     if generated_vcds and len(generated_vcds) >= 1:
@@ -544,7 +542,7 @@ def process_single_game(folder_path, binmerge_cmd, tmp_work_dir, mode_prefix):
             shutil.rmtree(folder_path, ignore_errors=True)
             return sanitized_vcd_stem, original_title, "success"
 
-    # If VCD creation failed, display conversion diagnostics
+    # Diagnostics if conversion fails
     print(f"\n[!] Conversion failed to produce VCD: {folder_name}")
     print(f"    - CUE File: {target_cue_for_conversion}")
     print(f"    - BIN File: {active_bin_path}")
