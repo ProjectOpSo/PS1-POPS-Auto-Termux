@@ -65,7 +65,7 @@ termux-setup-storage
 Execute this single-line installation string inside Termux to resolve application package links, clean broken builds, fetch remote source structures, and automate execution tracking properties:
 
 ```bash
-cd "$HOME" && dpkg --configure -a && apt --fix-broken install -y && pkg update -y && pkg upgrade -y && pkg install -y git make clang python ffmpeg && rm -rf PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && cd PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/cue2pops-android.git cue2pops-android && git clone https://github.com/ProjectOpSo/binmerge.git && git clone https://github.com/AnimMouse/POPS-binaries.git && cd cue2pops-android && cd .. && chmod +x ps1popsauto.py cheats.py
+cd "$HOME" && dpkg --configure -a && apt --fix-broken install -y && pkg update -y && pkg upgrade -y && pkg install -y git make clang python ffmpeg && rm -rf PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/PS1-POPS-Auto-Termux.git && cd PS1-POPS-Auto-Termux && git clone https://github.com/ProjectOpSo/rcue2pops-android.git cue2pops-android && git clone https://github.com/ProjectOpSo/binmerge.git && git clone https://github.com/AnimMouse/POPS-binaries.git && cd cue2pops-android && cd .. && chmod +x ps1popsauto.py cheats.py
 ```
 
 ### 3. ROM Preparation Guide
